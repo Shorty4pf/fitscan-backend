@@ -30,20 +30,18 @@ function toJournalFormat(data, mode) {
 
 /**
  * Envoie une réponse succès pour scan-food.
- * Inclut le format journal (name, calories, protein, carbs, fats) pour l'app.
+ * Format stable pour Codable côté iOS : success, mode, dishName, macros, confidence, items, notes.
  */
 function sendScanFoodSuccess(res, data) {
-  const journal = toJournalFormat(data, 'scan_food');
   res.status(200).json({
     success: true,
     mode: 'scan_food',
-    ...journal,
-    dishName: data.dishName ?? null,
-    estimatedCalories: data.estimatedCalories ?? null,
-    proteinG: data.proteinG ?? null,
-    carbsG: data.carbsG ?? null,
-    fatG: data.fatG ?? null,
-    confidence: data.confidence ?? null,
+    dishName: data.dishName ?? '',
+    estimatedCalories: data.estimatedCalories ?? 0,
+    proteinG: data.proteinG ?? 0,
+    carbsG: data.carbsG ?? 0,
+    fatG: data.fatG ?? 0,
+    confidence: data.confidence ?? 0,
     items: data.items ?? [],
     notes: data.notes ?? [],
   });
