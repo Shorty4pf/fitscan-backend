@@ -5,6 +5,7 @@
 
 const OFF_API_BASE = 'https://world.openfoodfacts.org/api/v2/product';
 const FIELDS = 'product_name,nutriments,serving_quantity,serving_size,image_front_url,image_front_small_url,selected_images';
+/** Délai max pour la réponse Open Food Facts (client app doit prévoir ~15–20 s à cause du cold start possible). */
 const REQUEST_TIMEOUT_MS = 10000;
 
 /** Extrait une URL d'image depuis le produit OFF (image_front_url ou selected_images.front). */
