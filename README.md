@@ -114,15 +114,17 @@ curl -X POST http://localhost:3000/ai/scan-label \
   -F "image=@/chemin/vers/etiquette.jpg"
 ```
 
-### Scan Barcode
+### Scan Barcode (endpoint utilisé par l’app iOS)
 
-**POST** `/ai/scan-barcode` — Body JSON `{ "barcode": "..." }`. Recherche via Open Food Facts. Réponse : `{ success, mode, name, calories, protein, carbs, fats, servingSize }` (valeurs pour 100 g).
+**POST** `/nutrition/scan/barcode` — Body JSON `{ "barcode": "..." }` uniquement. Recherche via Open Food Facts.  
+Réponse 200 : `{ success, name, calories, protein, carbs, fats, servingSize?, image_url?, imageUrl?, image_front_url? }`. Les champs `image_*` contiennent l’URL de l’image produit quand Open Food Facts en fournit une ; l’app les utilise pour afficher la photo (ex. `resolvedImageUrl = image_url ?? imageUrl ?? image_front_url`).  
+Réponse 404 : produit non trouvé. **C’est le seul endpoint code-barres appelé par l’app** (NutritionScanAPI.swift).
 
-### Endpoint unifié (format journal pour l'app)
+### Autres routes
 
-**POST** `/nutrition/scan` — Body multipart : `image` (optionnel), `barcode` (optionnel), `type` optionnel (`food` ou `label`). Au moins un de image/barcode. Réponse succès : `{ "success": true, "name", "calories", "protein", "carbs", "fats" }` (mappable sur `FoodScanBackendResult`). Erreurs : `{ "success": false, "error", "message" }`.
+**POST** `/ai/scan-barcode` — Même logique que ci‑dessus mais format réponse avec `mode: "scan_barcode"`. Non utilisé par l’app actuelle.
 
-**POST** `/nutrition/scan/barcode` — Body JSON `{ "barcode": "3017760756198" }`. Réponse 200 : `{ success, name, calories, protein, carbs, fats }`. Réponse 404 (produit non trouvé) : `{ success: false, error: "not_found", name: "", calories: 0, protein: 0, carbs: 0, fats: 0 }`. Utilisé par l’app iOS.
+**POST** `/nutrition/scan` — Body multipart : `image` (optionnel), `barcode` (optionnel), `type` optionnel (`food` ou `label`). Au moins un de image/barcode. Réponse succès : `{ "success": true, "name", "calories", "protein", "carbs", "fats" }` (+ champs image en cas de barcode). Erreurs : `{ "success": false, "error", "message" }`.
 
 ## Structure du projet
 
