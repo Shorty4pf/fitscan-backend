@@ -138,7 +138,7 @@ router.post('/scan-barcode', async (req, res) => {
         error: result.error,
       });
     }
-    res.status(200).json({
+    const body = {
       success: true,
       mode: 'scan_barcode',
       name: result.data.name,
@@ -147,7 +147,13 @@ router.post('/scan-barcode', async (req, res) => {
       carbs: result.data.carbs,
       fats: result.data.fats,
       servingSize: result.data.servingSize ?? null,
-    });
+    };
+    const img = result.data.image_url ?? result.data.imageUrl ?? result.data.image_front_url;
+    if (img) {
+      body.image_url = img;
+      body.imageUrl = img;
+    }
+    res.status(200).json(body);
   } catch (err) {
     console.error('[ai] scan-barcode error:', err?.message ?? err);
     sendError(res, 500, 'internal_error');
