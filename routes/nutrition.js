@@ -124,10 +124,10 @@ router.post('/scan', (req, res, next) => {
 
 /**
  * POST /nutrition/scan/barcode
- * Body: JSON { "barcode": "3017760756198" }
- * Réponse 200 : { name, calories, protein, carbs, fats } (optionnel : success, servingSize)
- * Réponse 404 : { success: false, error: "not_found", name: "", calories: 0, protein: 0, carbs: 0, fats: 0 }
- * Conforme à la spec app iOS (path attendu : /nutrition/scan/barcode).
+ * Endpoint utilisé par l’app iOS (NutritionScanAPI.swift). Corps : { "barcode": "..." } uniquement.
+ * Réponse 200 : { success, name, calories, protein, carbs, fats, servingSize?, image_url?, imageUrl?, image_front_url? }
+ *   — image_url / imageUrl / image_front_url : URL de l’image produit (Open Food Facts) si disponible ; l’app affiche l’image via resolvedImageUrl = image_url ?? imageUrl ?? image_front_url.
+ * Réponse 400/404 : code-barres invalide ou produit non trouvé.
  */
 router.post('/scan/barcode', async (req, res) => {
   try {
