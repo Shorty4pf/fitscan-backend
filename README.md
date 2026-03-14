@@ -118,7 +118,7 @@ curl -X POST http://localhost:3000/ai/scan-label \
 
 **POST** `/nutrition/scan/barcode` — Body JSON `{ "barcode": "..." }` uniquement. Recherche via Open Food Facts.  
 Réponse 200 : `{ success, name, calories, protein, carbs, fats, servingSize?, image_url?, imageUrl?, image_front_url? }`. Les champs `image_*` contiennent l’URL de l’image produit quand Open Food Facts en fournit une ; l’app les utilise pour afficher la photo (ex. `resolvedImageUrl = image_url ?? imageUrl ?? image_front_url`).  
-Réponse 404 : produit non trouvé. **C’est le seul endpoint code-barres appelé par l’app** (NutritionScanAPI.swift).
+Réponse 404 : produit non trouvé. **C’est le seul endpoint code-barres appelé par l’app** (NutritionScanAPI.swift). En cas de 404, l’app peut faire un fallback en interrogeant Open Food Facts directement (« Backend 404 – fallback Open Food Facts pour barcode »).
 
 ### Autres routes
 
