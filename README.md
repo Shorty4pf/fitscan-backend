@@ -39,6 +39,13 @@ node server.js
 
 Au démarrage, le serveur affiche le port et la liste des routes.
 
+## Déploiement (Docker / conteneur)
+
+L’erreur `Impossible de trouver le module './routes/ai'` signifie que le dossier `routes/` (ou `services/`, `utils/`) n’est pas présent dans le conteneur.
+
+- **Avec le Dockerfile fourni** : le build copie `server.js`, `routes/`, `services/`, `utils/`. Utilisez ce Dockerfile pour votre image (Railway, Render, etc.).
+- **Sans Docker** (build natif) : assurez-vous que tout le repo est déployé (y compris les dossiers `routes`, `services`, `utils`) et que la commande de démarrage est bien `node server.js`.
+
 ## Tester l’API
 
 ### Healthcheck
@@ -114,6 +121,8 @@ curl -X POST http://localhost:3000/ai/scan-label \
 ### Endpoint unifié (format journal pour l'app)
 
 **POST** `/nutrition/scan` — Body multipart : `image` (optionnel), `barcode` (optionnel), `type` optionnel (`food` ou `label`). Au moins un de image/barcode. Réponse succès : `{ "success": true, "name", "calories", "protein", "carbs", "fats" }` (mappable sur `FoodScanBackendResult`). Erreurs : `{ "success": false, "error", "message" }`.
+
+**POST** `/nutrition/scan/barcode` — Body JSON `{ "barcode": "3017760756198" }`. Réponse 200 : `{ success, name, calories, protein, carbs, fats }`. Réponse 404 (produit non trouvé) : `{ success: false, error: "not_found", name: "", calories: 0, protein: 0, carbs: 0, fats: 0 }`. Utilisé par l’app iOS.
 
 ## Structure du projet
 
