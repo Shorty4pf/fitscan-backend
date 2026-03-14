@@ -1,69 +1,163 @@
 /**
- * Serveur FitScan Backend - API IA pour l'app iOS FitScan.
- * La clé OpenAI reste côté serveur, jamais exposée au client.
+ * Routes API pour l'analyse IA (scan food, scan label, scan barcode).
+ * Toutes les images sont reçues en multipart/form-data.
  */
 
-require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
+const multer = require('multer');
+const { sendError } = require('../utils/errors');
+const { sendScanFoodSuccess, sendScanLabelSuccess } = require('../utils/response');
+const { prepareImageForOpenAI } = require('../utils/image');
+const { analyzeFoodImage, analyzeNutritionLabelImage, getClient } = require('../services/openai');
+const { normalizeFoodScanResult, normalizeLabelScanResult } = require('../services/nutrition');
+const { lookupBarcode } = require('../services/barcode');
 
-const aiRoutes = require('./routes/ai');
-const nutritionRoutes = require('./routes/nutrition');
-const { sendError } = require('./utils/errors');
+const router = express.Router();
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+const { MAX_SIZE_BYTES, ALLOWED_MIME_TYPES } = require('../utils/image');
 
-// Middlewares
-app.use(cors());
-app.use(express.json());
-
-// Routes
-app.get('/health', (req, res) => {
-  res.status(200).json({ ok: true });
+// Multer : stockage en mémoire, validation taille et type
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_SIZE_BYTES },
+  fileFilter: (req, file, cb) => {
+    const mime = (file.mimetype || '').toLowerCase();
+    if (ALLOWED_MIME_TYPES.includes(mime)) {
+      cb(null, true);
+    } else {
+      cb(null, false);
+    }
+  },
 });
 
-app.get('/version', (req, res) => {
-  let version = '1.0.0';
-  let name = 'fitscan-backend';
-  try {
-    const pkgPath = path.join(__dirname, 'package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-    if (pkg.version) version = pkg.version;
-    if (pkg.name) name = pkg.name;
-  } catch {
-    // garde les valeurs par défaut
+// Gestion des erreurs Multer (taille, type) → invalid_image
+function handleMulterError(err, req, res, next) {
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    return sendError(res, 400, 'invalid_image');
   }
-  res.status(200).json({
-    ok: true,
-    name,
-    version,
+  if (err && err.code === 'LIMIT_UNEXPECTED_FILE') {
+    return sendError(res, 400, 'invalid_image');
+  }
+  if (err) {
+    return sendError(res, 400, 'invalid_image');
+  }
+  next();
+}
+
+/**
+ * POST /ai/scan-food
+ * Body: multipart/form-data, champ "image"
+ */
+router.post('/scan-food', (req, res, next) => {
+  upload.single('image')(req, res, (err) => {
+    if (err) {
+      handleMulterError(err, req, res, next);
+      return;
+    }
+    next();
   });
+}, async (req, res) => {
+  try {
+    const prepared = prepareImageForOpenAI(req.file);
+    if (!prepared.valid) {
+      return sendError(res, 400, prepared.error);
+    }
+
+    if (!getClient()) {
+      console.error('[ai] OPENAI_API_KEY manquante');
+      return sendError(res, 503, 'missing_api_key');
+    }
+
+    const result = await analyzeFoodImage(prepared.dataUrl);
+    if (!result.ok) {
+      return sendError(res, 502, result.error);
+    }
+
+    const normalized = normalizeFoodScanResult(result.data);
+    sendScanFoodSuccess(res, normalized);
+  } catch (err) {
+    console.error('[ai] scan-food error:', err?.message ?? err);
+    sendError(res, 500, 'internal_error');
+  }
 });
 
-app.use('/ai', aiRoutes);
-app.use('/nutrition', nutritionRoutes);
+/**
+ * POST /ai/scan-label
+ * Body: multipart/form-data, champ "image"
+ */
+router.post('/scan-label', (req, res, next) => {
+  upload.single('image')(req, res, (err) => {
+    if (err) {
+      handleMulterError(err, req, res, next);
+      return;
+    }
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const prepared = prepareImageForOpenAI(req.file);
+    if (!prepared.valid) {
+      return sendError(res, 400, prepared.error);
+    }
 
-// 404
-app.use((req, res) => {
-  res.status(404).json({ success: false, error: 'not_found' });
+    if (!getClient()) {
+      console.error('[ai] OPENAI_API_KEY manquante');
+      return sendError(res, 503, 'missing_api_key');
+    }
+
+    const result = await analyzeNutritionLabelImage(prepared.dataUrl);
+    if (!result.ok) {
+      return sendError(res, 502, result.error);
+    }
+
+    const normalized = normalizeLabelScanResult(result.data);
+    sendScanLabelSuccess(res, normalized);
+  } catch (err) {
+    console.error('[ai] scan-label error:', err?.message ?? err);
+    sendError(res, 500, 'internal_error');
+  }
 });
 
-// Gestion d'erreurs globale (évite d'envoyer des stack traces au client)
-app.use((err, req, res, next) => {
-  console.error('[server] error:', err?.message ?? err);
-  sendError(res, 500, 'internal_error');
+/**
+ * POST /ai/scan-barcode
+ * Body: JSON { "barcode": "3017620422003" }
+ * Recherche via Open Food Facts, retourne name, calories, protein, carbs, fats.
+ */
+router.post('/scan-barcode', async (req, res) => {
+  try {
+    const barcode = typeof req.body?.barcode === 'string' ? req.body.barcode.trim() : '';
+    if (!barcode) {
+      return sendError(res, 400, 'invalid_barcode');
+    }
+    const result = await lookupBarcode(barcode);
+    if (!result.ok) {
+      const status = result.error === 'invalid_barcode' ? 400 : 404;
+      return res.status(status).json({
+        success: false,
+        mode: 'scan_barcode',
+        error: result.error,
+      });
+    }
+    const body = {
+      success: true,
+      mode: 'scan_barcode',
+      name: result.data.name,
+      calories: result.data.calories,
+      protein: result.data.protein,
+      carbs: result.data.carbs,
+      fats: result.data.fats,
+      servingSize: result.data.servingSize ?? null,
+    };
+    const img = result.data.image_url ?? result.data.imageUrl ?? result.data.image_front_url;
+    if (img) {
+      body.image_url = img;
+      body.imageUrl = img;
+    }
+    res.status(200).json(body);
+  } catch (err) {
+    console.error('[ai] scan-barcode error:', err?.message ?? err);
+    sendError(res, 500, 'internal_error');
+  }
 });
 
-app.listen(PORT, () => {
-  console.log(`FitScan Backend démarré sur le port ${PORT}`);
-  console.log(`  GET  /health`);
-  console.log(`  GET  /version`);
-  console.log(`  POST /ai/scan-food`);
-  console.log(`  POST /ai/scan-label`);
-  console.log(`  POST /ai/scan-barcode`);
-  console.log(`  POST /nutrition/scan (image et/ou barcode → name, calories, protein, carbs, fats)`);
-  console.log(`  POST /nutrition/scan/barcode (JSON { barcode } → name, calories, protein, carbs, fats)`);
-});
+module.exports = router;
