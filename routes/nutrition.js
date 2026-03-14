@@ -127,7 +127,7 @@ router.post('/scan', (req, res, next) => {
  * Endpoint utilisé par l’app iOS (NutritionScanAPI.swift). Corps : { "barcode": "..." } uniquement.
  * Réponse 200 : { success, name, calories, protein, carbs, fats, servingSize?, image_url?, imageUrl?, image_front_url? }
  *   — image_url / imageUrl / image_front_url : URL de l’image produit (Open Food Facts) si disponible ; l’app affiche l’image via resolvedImageUrl = image_url ?? imageUrl ?? image_front_url.
- * Réponse 400/404 : code-barres invalide ou produit non trouvé.
+ * Réponse 400/404 : code-barres invalide ou produit non trouvé. L’app (NutritionScanAPI) peut en 404 faire un fallback vers Open Food Facts direct.
  */
 router.post('/scan/barcode', async (req, res) => {
   try {
