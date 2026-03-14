@@ -122,4 +122,57 @@ router.post('/scan', (req, res, next) => {
   }
 });
 
+/**
+ * POST /nutrition/scan/barcode
+ * Body: JSON { "barcode": "3017760756198" }
+ * Réponse 200 : { name, calories, protein, carbs, fats } (optionnel : success, servingSize)
+ * Réponse 404 : { success: false, error: "not_found", name: "", calories: 0, protein: 0, carbs: 0, fats: 0 }
+ * Conforme à la spec app iOS (path attendu : /nutrition/scan/barcode).
+ */
+router.post('/scan/barcode', async (req, res) => {
+  try {
+    const barcode = typeof req.body?.barcode === 'string' ? req.body.barcode.trim() : '';
+    if (!barcode) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_barcode',
+        message: 'Code-barres manquant.',
+        name: '',
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fats: 0,
+      });
+    }
+
+    const result = await lookupBarcode(barcode);
+    if (!result.ok) {
+      const errorCode = result.error === 'invalid_barcode' ? 'invalid_barcode' : 'not_found';
+      const status = result.error === 'invalid_barcode' ? 400 : 404;
+      return res.status(status).json({
+        success: false,
+        error: errorCode,
+        name: '',
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fats: 0,
+      });
+    }
+
+    return sendNutritionScanSuccess(res, result.data);
+  } catch (err) {
+    console.error('[nutrition] scan/barcode error:', err?.message ?? err);
+    res.status(500).json({
+      success: false,
+      error: 'internal_error',
+      name: '',
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fats: 0,
+    });
+  }
+});
+
 module.exports = router;
