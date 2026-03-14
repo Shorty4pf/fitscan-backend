@@ -4,8 +4,21 @@
  */
 
 const OFF_API_BASE = 'https://world.openfoodfacts.org/api/v2/product';
-const FIELDS = 'product_name,nutriments,serving_quantity,serving_size,image_front_url';
+const FIELDS = 'product_name,nutriments,serving_quantity,serving_size,image_front_url,image_front_small_url,selected_images';
 const REQUEST_TIMEOUT_MS = 10000;
+
+/** Extrait une URL d'image depuis le produit OFF (image_front_url ou selected_images.front). */
+function getProductImageUrl(p) {
+  const fromField = (val) => (val && typeof val === 'string' && val.startsWith('http') ? val.trim() : null);
+  let url = fromField(p.image_front_url) || fromField(p.image_front_small_url);
+  if (url) return url;
+  const sel = p.selected_images && p.selected_images.front;
+  if (sel && sel.display && typeof sel.display === 'object') {
+    const display = sel.display;
+    url = fromField(display.en) || fromField(display.fr) || fromField(display.de) || Object.values(display).find((v) => fromField(v));
+  }
+  return url || null;
+}
 
 /**
  * Convertit kJ en kcal (1 kcal ≈ 4,184 kJ).
@@ -69,8 +82,7 @@ async function lookupBarcode(barcode) {
       servingSize = String(p.serving_size);
     }
 
-    // URL image produit (front) pour affichage dans l'app (image_url / imageUrl / image_front_url)
-    const imageUrl = p.image_front_url && String(p.image_front_url).trim() ? String(p.image_front_url).trim() : null;
+    const imageUrl = getProductImageUrl(p);
 
     return {
       ok: true,
