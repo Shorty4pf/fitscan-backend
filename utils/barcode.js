@@ -4,12 +4,30 @@
  */
 
 const OFF_API_BASE = 'https://world.openfoodfacts.org/api/v2/product';
-const FIELDS = 'product_name,nutriments,serving_quantity,serving_size,image_front_url,image_front_small_url,selected_images';
+const FIELDS = 'product_name,nutriments,serving_quantity,serving_size,image_front_url,image_front_small_url,selected_images,images';
 /** Délai max pour la réponse Open Food Facts (client app doit prévoir ~15–20 s à cause du cold start possible). */
 const REQUEST_TIMEOUT_MS = 10000;
 
-/** Extrait une URL d'image depuis le produit OFF (image_front_url ou selected_images.front). */
-function getProductImageUrl(p) {
+const OFF_IMAGES_BASE = 'https://images.openfoodfacts.org/images/products';
+
+/** Construit le chemin barcode pour les URLs OFF (ex. 3017620422003 → 301/762/042/2003). */
+function barcodeToPath(code) {
+  const s = String(code).replace(/\D/g, '').padStart(13, '0').slice(-13);
+  if (s.length < 4) return null;
+  const a = s.slice(0, 3);
+  const b = s.slice(3, 6);
+  const c = s.slice(6, 9);
+  const d = s.slice(9);
+  return `${a}/${b}/${c}/${d}`;
+}
+
+/**
+ * Extrait une URL d'image depuis le produit OFF :
+ * 1) image_front_url / image_front_small_url
+ * 2) selected_images.front.display (en, fr, de, etc.)
+ * 3) construction depuis images (front_xx.rev) + barcode si présent
+ */
+function getProductImageUrl(p, barcode) {
   const fromField = (val) => (val && typeof val === 'string' && val.startsWith('http') ? val.trim() : null);
   let url = fromField(p.image_front_url) || fromField(p.image_front_small_url);
   if (url) return url;
@@ -18,7 +36,22 @@ function getProductImageUrl(p) {
     const display = sel.display;
     url = fromField(display.en) || fromField(display.fr) || fromField(display.de) || Object.values(display).find((v) => fromField(v));
   }
-  return url || null;
+  if (url) return url;
+  // Fallback : construire l'URL à partir de product.images (front_fr, front_en, etc. + rev)
+  const imgs = p.images;
+  if (imgs && typeof imgs === 'object' && barcode) {
+    const path = barcodeToPath(barcode);
+    if (path) {
+      const preferred = ['front_fr', 'front_en', 'front_de', 'front_es', 'front_it'];
+      let frontKey = preferred.find((k) => imgs[k] && (imgs[k].rev != null));
+      if (!frontKey) frontKey = Object.keys(imgs).find((k) => /^front_/.test(k) && imgs[k] && (imgs[k].rev != null));
+      if (frontKey) {
+        const rev = String(imgs[frontKey].rev);
+        if (rev) return `${OFF_IMAGES_BASE}/${path}/${frontKey}.${rev}.400.jpg`;
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -83,7 +116,7 @@ async function lookupBarcode(barcode) {
       servingSize = String(p.serving_size);
     }
 
-    const imageUrl = getProductImageUrl(p);
+    const imageUrl = getProductImageUrl(p, json.code || code);
 
     return {
       ok: true,
