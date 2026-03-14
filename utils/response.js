@@ -85,6 +85,12 @@ function sendNutritionScanSuccess(res, payload) {
   if (payload.servingSize) {
     body.servingSize = payload.servingSize;
   }
+  // URL image produit (scan code-barres) : l'app affiche l'image si image_url ou imageUrl est présent
+  const img = payload.image_url ?? payload.imageUrl ?? payload.image_front_url;
+  if (img) {
+    body.image_url = img;
+    body.imageUrl = img;
+  }
   res.status(200).json(body);
 }
 
