@@ -70,13 +70,15 @@ function normalizeFoodItem(item) {
 
 /**
  * Normalise le résultat brut du scan food (réponse OpenAI).
+ * Convertis et arrondit les nombres, filtre les items invalides, garantit un JSON stable.
+ * Robuste si OpenAI renvoie une réponse partielle ou des champs manquants.
  * @param {object} raw - Réponse brute (après parse JSON)
  * @returns {object} - Objet normalisé pour l'API
  */
 function normalizeFoodScanResult(raw) {
   if (!raw || typeof raw !== 'object') {
     return {
-      dishName: null,
+      dishName: '',
       estimatedCalories: 0,
       proteinG: 0,
       carbsG: 0,
@@ -95,15 +97,17 @@ function normalizeFoodScanResult(raw) {
     ? raw.notes.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim())
     : [];
 
+  const confidence = safeRound(toConfidence(raw.confidence), 2);
+
   return {
     dishName: typeof raw.dishName === 'string' && raw.dishName.trim()
       ? raw.dishName.trim()
-      : null,
+      : '',
     estimatedCalories: toNonNegativeNumber(raw.estimatedCalories),
     proteinG: toNonNegativeNumber(raw.proteinG),
     carbsG: toNonNegativeNumber(raw.carbsG),
     fatG: toNonNegativeNumber(raw.fatG),
-    confidence: toConfidence(raw.confidence),
+    confidence,
     items,
     notes,
   };
