@@ -1,9 +1,10 @@
 /**
  * Validation et préparation des images pour l'API OpenAI.
- * Vérifications : existence, type MIME, taille.
+ * Vérifications : présence du fichier, type MIME, taille min/max, image exploitable.
  */
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MIN_SIZE_BYTES = 50; // fichier non vide, image exploitable
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
   'image/jpg',
@@ -36,12 +37,15 @@ function validateMimeType(mimeType) {
 }
 
 /**
- * Vérifie que la taille du fichier ne dépasse pas la limite.
+ * Vérifie que la taille du fichier est dans une plage exploitable (min/max).
  * @param {number} size - Taille en octets
  * @returns {{ valid: boolean, error?: string }}
  */
 function validateSize(size) {
-  if (typeof size !== 'number' || size <= 0 || size > MAX_SIZE_BYTES) {
+  if (typeof size !== 'number' || Number.isNaN(size)) {
+    return { valid: false, error: 'invalid_image' };
+  }
+  if (size < MIN_SIZE_BYTES || size > MAX_SIZE_BYTES) {
     return { valid: false, error: 'invalid_image' };
   }
   return { valid: true };
