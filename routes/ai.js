@@ -152,6 +152,7 @@ router.post('/scan-barcode', async (req, res) => {
     if (img) {
       body.image_url = img;
       body.imageUrl = img;
+      body.image_front_url = img;
     }
     res.status(200).json(body);
   } catch (err) {
