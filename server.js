@@ -65,4 +65,5 @@ app.listen(PORT, () => {
   console.log(`  POST /ai/scan-label`);
   console.log(`  POST /ai/scan-barcode`);
   console.log(`  POST /nutrition/scan (image et/ou barcode → name, calories, protein, carbs, fats)`);
+  console.log(`  POST /nutrition/scan/barcode (JSON { barcode } → name, calories, protein, carbs, fats)`);
 });
