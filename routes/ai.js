@@ -47,6 +47,7 @@ function handleMulterError(err, req, res, next) {
 /**
  * POST /ai/scan-food
  * Body: multipart/form-data, champ "image"
+ * Réponse: JSON structuré (dishName, estimatedCalories, proteinG, carbsG, fatG, confidence, items, notes).
  */
 router.post('/scan-food', (req, res, next) => {
   upload.single('image')(req, res, (err) => {
@@ -58,9 +59,12 @@ router.post('/scan-food', (req, res, next) => {
   });
 }, async (req, res) => {
   try {
+    if (!req.file) {
+      return sendError(res, 400, 'invalid_image');
+    }
     const prepared = prepareImageForOpenAI(req.file);
     if (!prepared.valid) {
-      return sendError(res, 400, prepared.error);
+      return sendError(res, 400, prepared.error ?? 'invalid_image');
     }
 
     if (!getClient()) {
@@ -70,7 +74,8 @@ router.post('/scan-food', (req, res, next) => {
 
     const result = await analyzeFoodImage(prepared.dataUrl);
     if (!result.ok) {
-      return sendError(res, 502, result.error);
+      const status = result.error === 'missing_api_key' ? 503 : 502;
+      return sendError(res, status, result.error ?? 'ai_failed');
     }
 
     const normalized = normalizeFoodScanResult(result.data);
