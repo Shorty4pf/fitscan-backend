@@ -10,15 +10,22 @@ const { sendScanFoodSuccess, sendScanLabelSuccess } = require('../utils/response
 const { prepareImageForOpenAI } = require('../utils/image');
 const { analyzeFoodImage, analyzeNutritionLabelImage, getClient } = require('../services/openai');
 const { lookupBarcode } = require('../services/barcode');
-// Chargé après server.js require('nutrition') pour avoir le module complet en cache
-const nutrition = require('../services/nutrition');
+
+function getNutrition() {
+  return require('../services/nutrition');
+}
 
 const router = express.Router();
 
 // Diagnostic : vérifier que le module nutrition est chargé (pour debug déploiement)
 router.get('/ready', (req, res) => {
-  const hasNorm = typeof nutrition.normalizeFoodScanResult === 'function';
-  res.status(200).json({ ok: true, nutrition: hasNorm });
+  try {
+    const nutrition = getNutrition();
+    const hasNorm = typeof nutrition.normalizeFoodScanResult === 'function';
+    res.status(200).json({ ok: true, nutrition: hasNorm });
+  } catch (e) {
+    res.status(200).json({ ok: true, nutrition: false, loadError: (e && e.message) || 'unknown' });
+  }
 });
 
 const { MAX_SIZE_BYTES, ALLOWED_MIME_TYPES } = require('../utils/image');
@@ -86,6 +93,7 @@ router.post('/scan-food', (req, res, next) => {
     }
 
     const raw = result.data != null ? result.data : {};
+    const nutrition = getNutrition();
     let normalized;
     try {
       normalized = nutrition.normalizeFoodScanResult(raw);
@@ -132,7 +140,7 @@ router.post('/scan-label', (req, res, next) => {
     }
 
     const raw = result.data != null ? result.data : {};
-    const normalized = nutrition.normalizeLabelScanResult(raw);
+    const normalized = getNutrition().normalizeLabelScanResult(raw);
     sendScanLabelSuccess(res, normalized);
   } catch (err) {
     console.error('[ai] scan-label error:', err?.message ?? err);
