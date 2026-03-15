@@ -128,15 +128,22 @@ async function analyzeFoodImage(imageDataUrl) {
     });
 
     const content = response?.choices?.[0]?.message?.content;
-    if (!content) return { ok: false, error: 'ai_failed' };
+    if (!content) {
+      console.error('[openai] analyzeFoodImage: pas de content dans la réponse');
+      return { ok: false, error: 'ai_failed' };
+    }
 
     const parsed = extractJsonFromResponse(content);
-    if (!parsed) return { ok: false, error: 'invalid_response' };
+    if (!parsed) {
+      console.error('[openai] analyzeFoodImage: JSON invalide. Début de la réponse:', content.slice(0, 400));
+      return { ok: false, error: 'invalid_response' };
+    }
     return { ok: true, data: parsed };
   } catch (err) {
     console.error('[openai] analyzeFoodImage error:', err?.message ?? err);
-    const isTimeout = err?.code === 'ETIMEDOUT' || err?.message?.includes('timeout');
-    return { ok: false, error: isTimeout ? 'ai_failed' : 'ai_failed' };
+    if (err?.status) console.error('[openai] status:', err.status);
+    if (err?.error) console.error('[openai] error body:', JSON.stringify(err.error).slice(0, 500));
+    return { ok: false, error: 'ai_failed' };
   }
 }
 
