@@ -1,7 +1,20 @@
 /**
  * Normalisation des réponses nutritionnelles renvoyées par OpenAI.
- * Garantit un JSON stable et des valeurs cohérentes pour l'app iOS.
+ * Valeurs internes précises vs valeurs d'affichage arrondies.
+ * Intégration du score santé (healthScore, healthScoreReasoning).
  */
+
+let computeHealthScore;
+try {
+  computeHealthScore = require('./healthScore').computeHealthScore;
+} catch (err) {
+  console.warn('[nutrition] healthScore non chargé, utilisation des valeurs par défaut:', err?.message || err);
+  computeHealthScore = () => ({
+    healthScore: 5,
+    healthScoreDisplay: 5,
+    healthScoreReasoning: ['Score non calculé (module healthScore absent).'],
+  });
+}
 
 /**
  * Arrondit une valeur numérique de manière sûre.
@@ -45,12 +58,35 @@ function toNonNegativeNumber(value) {
 }
 
 /**
+ * Valeur interne précise (autorise décimales).
+ * @param {*} value
+ * @returns {number}
+ */
+function toNonNegativePrecise(value) {
+  const n = Number(value);
+  if (Number.isNaN(n) || n < 0) return 0;
+  return safeRound(n, 2);
+}
+
+/**
  * Parse une valeur en confiance (0 à 1).
  * @param {*} value
  * @returns {number}
  */
 function toConfidence(value) {
   return clampNumber(value, 0, 1);
+}
+
+/**
+ * Arrondi "affichage" pour les macros : < 0.5 → 0, sinon entier le plus proche.
+ * @param {number} value
+ * @returns {number}
+ */
+function toDisplayMacro(value) {
+  const n = Number(value);
+  if (Number.isNaN(n) || n < 0) return 0;
+  if (n < 0.5) return 0;
+  return Math.round(n);
 }
 
 /**
@@ -68,25 +104,53 @@ function normalizeFoodItem(item) {
   return { name, grams };
 }
 
+const VALID_FOOD_TYPES = ['single_food', 'multi_ingredient_meal', 'packaged_product'];
+const VALID_PROCESSING_LEVELS = ['minimal', 'low', 'moderate', 'high', 'ultra'];
+
+function normalizeFoodType(value) {
+  const v = (value || '').toString().toLowerCase().trim();
+  return VALID_FOOD_TYPES.includes(v) ? v : 'single_food';
+}
+
+function normalizeProcessingLevel(value) {
+  const v = (value || '').toString().toLowerCase().trim();
+  return VALID_PROCESSING_LEVELS.includes(v) ? v : 'moderate';
+}
+
 /**
  * Normalise le résultat brut du scan food (réponse OpenAI).
- * Convertis et arrondit les nombres, filtre les items invalides, garantit un JSON stable.
- * Robuste si OpenAI renvoie une réponse partielle ou des champs manquants.
+ * - Valeurs internes précises (proteinG, carbsG, fatG avec décimales).
+ * - Valeurs d'affichage (displayProteinG, displayCarbsG, displayFatG).
+ * - Score santé et reasoning.
  * @param {object} raw - Réponse brute (après parse JSON)
  * @returns {object} - Objet normalisé pour l'API
  */
 function normalizeFoodScanResult(raw) {
+  const empty = {
+    dishName: '',
+    name: '',
+    foodType: 'single_food',
+    estimatedCalories: 0,
+    proteinG: 0,
+    carbsG: 0,
+    fatG: 0,
+    displayProteinG: 0,
+    displayCarbsG: 0,
+    displayFatG: 0,
+    estimatedFiberG: 0,
+    naturalSugarEstimate: 0,
+    addedSugarEstimate: 0,
+    processingLevel: 'moderate',
+    confidence: 0,
+    items: [],
+    notes: [],
+    healthScore: 5,
+    healthScoreDisplay: 5,
+    healthScoreReasoning: [],
+  };
+
   if (!raw || typeof raw !== 'object') {
-    return {
-      dishName: '',
-      estimatedCalories: 0,
-      proteinG: 0,
-      carbsG: 0,
-      fatG: 0,
-      confidence: 0,
-      items: [],
-      notes: [],
-    };
+    return empty;
   }
 
   const items = Array.isArray(raw.items)
@@ -97,20 +161,40 @@ function normalizeFoodScanResult(raw) {
     ? raw.notes.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim())
     : [];
 
-  const confidence = safeRound(toConfidence(raw.confidence), 2);
+  const dishName = typeof raw.dishName === 'string' && raw.dishName.trim()
+    ? raw.dishName.trim()
+    : '';
 
-  return {
-    dishName: typeof raw.dishName === 'string' && raw.dishName.trim()
-      ? raw.dishName.trim()
-      : '',
+  const proteinG = toNonNegativePrecise(raw.proteinG);
+  const carbsG = toNonNegativePrecise(raw.carbsG);
+  const fatG = toNonNegativePrecise(raw.fatG);
+
+  const normalized = {
+    dishName,
+    name: dishName,
+    foodType: normalizeFoodType(raw.foodType),
     estimatedCalories: toNonNegativeNumber(raw.estimatedCalories),
-    proteinG: toNonNegativeNumber(raw.proteinG),
-    carbsG: toNonNegativeNumber(raw.carbsG),
-    fatG: toNonNegativeNumber(raw.fatG),
-    confidence,
+    proteinG,
+    carbsG,
+    fatG,
+    displayProteinG: toDisplayMacro(proteinG),
+    displayCarbsG: toDisplayMacro(carbsG),
+    displayFatG: toDisplayMacro(fatG),
+    estimatedFiberG: toNonNegativePrecise(raw.estimatedFiberG),
+    naturalSugarEstimate: toNonNegativePrecise(raw.naturalSugarEstimate),
+    addedSugarEstimate: toNonNegativePrecise(raw.addedSugarEstimate),
+    processingLevel: normalizeProcessingLevel(raw.processingLevel),
+    confidence: safeRound(toConfidence(raw.confidence), 2),
     items,
     notes,
   };
+
+  const { healthScore, healthScoreDisplay, healthScoreReasoning } = computeHealthScore(normalized);
+  normalized.healthScore = healthScore;
+  normalized.healthScoreDisplay = healthScoreDisplay;
+  normalized.healthScoreReasoning = Array.isArray(healthScoreReasoning) ? healthScoreReasoning : [];
+
+  return normalized;
 }
 
 /**
