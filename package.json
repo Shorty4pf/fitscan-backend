@@ -4,7 +4,8 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "test": "node tests/healthScore.test.js",
+    "test": "node tests/healthScore.test.js && node tests/healthScoreInline.test.js",
+    "test:inline": "node tests/healthScoreInline.test.js",
     "start": "node server.js"
   },
   "keywords": [],
