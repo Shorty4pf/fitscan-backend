@@ -15,8 +15,10 @@ const { prepareImageForOpenAI } = require('../utils/image');
 const { analyzeFoodImage, analyzeNutritionLabelImage, getClient } = require('../services/openai');
 const { lookupBarcode } = require('../services/barcode');
 
-// Chargement paresseux pour éviter la dépendance circulaire (nutrition utilisé uniquement dans les handlers)
 function getNutrition() {
+  if (typeof global.__fitscanNutrition === 'object' && global.__fitscanNutrition !== null) {
+    return global.__fitscanNutrition;
+  }
   return require('../services/nutrition');
 }
 
