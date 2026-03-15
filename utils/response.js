@@ -30,21 +30,33 @@ function toJournalFormat(data, mode) {
 
 /**
  * Envoie une réponse succès pour scan-food.
- * Format stable pour Codable côté iOS : success, mode, dishName, macros, confidence, items, notes.
+ * Inclut : valeurs précises (proteinG, carbsG, fatG), valeurs affichage (display*),
+ * score santé (healthScore, healthScoreDisplay, healthScoreReasoning), foodType, processingLevel, fibres.
  */
 function sendScanFoodSuccess(res, data) {
-  res.status(200).json({
+  const body = {
     success: true,
     mode: 'scan_food',
     dishName: data.dishName ?? '',
+    name: data.name ?? data.dishName ?? '',
+    foodType: data.foodType ?? 'single_food',
     estimatedCalories: data.estimatedCalories ?? 0,
     proteinG: data.proteinG ?? 0,
     carbsG: data.carbsG ?? 0,
     fatG: data.fatG ?? 0,
+    displayProteinG: data.displayProteinG ?? Math.round(data.proteinG ?? 0),
+    displayCarbsG: data.displayCarbsG ?? Math.round(data.carbsG ?? 0),
+    displayFatG: data.displayFatG ?? Math.round(data.fatG ?? 0),
+    estimatedFiberG: data.estimatedFiberG ?? 0,
+    processingLevel: data.processingLevel ?? 'moderate',
+    healthScore: data.healthScore ?? 5,
+    healthScoreDisplay: data.healthScoreDisplay ?? 5,
+    healthScoreReasoning: data.healthScoreReasoning ?? [],
     confidence: data.confidence ?? 0,
     items: data.items ?? [],
     notes: data.notes ?? [],
-  });
+  };
+  res.status(200).json(body);
 }
 
 /**
