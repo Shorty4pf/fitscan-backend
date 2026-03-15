@@ -35,8 +35,6 @@ Le backend expose **POST /ai/scan-food** avec :
 
 **Dans Xcode :** File → New → File → Swift File → nommer `AppConfig.swift`.
 
-Remplace `https://ton-vrai-backend.up.railway.app` par l’URL réelle de ton backend (ex. ton app Railway).
-
 ```swift
 //
 //  AppConfig.swift
@@ -47,8 +45,8 @@ import Foundation
 
 enum AppConfig {
 
-    /// URL de base du backend. Remplacer par ton URL Railway (ou localhost pour le dev).
-    static let backendBaseURL: String = "https://ton-vrai-backend.up.railway.app"
+    /// URL de base du backend FitScan (Railway).
+    static let backendBaseURL: String = "https://fitscan-program-backend-production.up.railway.app"
 
     static var fitscanBackendBaseURL: String { backendBaseURL }
 
@@ -60,7 +58,7 @@ enum AppConfig {
 }
 ```
 
-**Pour le dev local :** tu peux temporairement mettre `"http://localhost:3000"` (simulateur) ou `"http://<IP-de-ton-Mac>:3000"` (iPhone physique).
+**Pour le dev local :** remplacer temporairement par `"http://localhost:3000"` (simulateur) ou `"http://<IP-de-ton-Mac>:3000"` (iPhone physique).
 
 ---
 
