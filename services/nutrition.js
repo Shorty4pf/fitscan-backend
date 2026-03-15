@@ -4,16 +4,32 @@
  * Intégration du score santé (healthScore, healthScoreReasoning).
  */
 
-let computeHealthScore;
-try {
-  computeHealthScore = require('./healthScore').computeHealthScore;
-} catch (err) {
-  console.warn('[nutrition] healthScore non chargé, utilisation des valeurs par défaut:', err?.message || err);
-  computeHealthScore = () => ({
+const path = require('path');
+
+function defaultHealthScore() {
+  return {
     healthScore: 5,
     healthScoreDisplay: 5,
     healthScoreReasoning: ['Score non calculé (module healthScore absent).'],
-  });
+  };
+}
+
+let computeHealthScore = defaultHealthScore;
+
+try {
+  const healthScorePath = path.join(__dirname, 'healthScore.js');
+  const healthScoreModule = require(healthScorePath);
+  if (typeof healthScoreModule.computeHealthScore === 'function') {
+    computeHealthScore = healthScoreModule.computeHealthScore;
+  } else {
+    console.warn('[nutrition] healthScore.computeHealthScore non disponible, utilisation des valeurs par défaut.');
+  }
+} catch (err) {
+  if (err && err.code === 'MODULE_NOT_FOUND') {
+    console.warn('[nutrition] healthScore.js introuvable, score santé par défaut. Vérifiez que services/healthScore.js est bien déployé.');
+  } else {
+    console.warn('[nutrition] healthScore non chargé:', err?.message || err, '- score santé par défaut.');
+  }
 }
 
 /**
