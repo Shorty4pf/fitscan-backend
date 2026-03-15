@@ -3,6 +3,7 @@
  * Toutes les images sont reçues en multipart/form-data.
  */
 
+const path = require('path');
 const express = require('express');
 const multer = require('multer');
 const { sendError } = require('../utils/errors');
@@ -12,7 +13,7 @@ const { analyzeFoodImage, analyzeNutritionLabelImage, getClient } = require('../
 const { lookupBarcode } = require('../services/barcode');
 
 function getNutrition() {
-  return require('../services/nutrition');
+  return require(path.join(__dirname, '..', 'services', 'nutrition'));
 }
 
 const router = express.Router();
@@ -81,7 +82,12 @@ router.post('/scan-food', (req, res, next) => {
       return sendError(res, status, result.error ?? 'ai_failed');
     }
 
-    const { normalizeFoodScanResult } = getNutrition();
+    const nutrition = getNutrition();
+    const normalizeFoodScanResult = nutrition.normalizeFoodScanResult;
+    if (typeof normalizeFoodScanResult !== 'function') {
+      console.error('[ai] normalizeFoodScanResult manquant:', typeof normalizeFoodScanResult, Object.keys(nutrition || {}));
+      return sendError(res, 500, 'internal_error');
+    }
     const normalized = normalizeFoodScanResult(result.data);
     sendScanFoodSuccess(res, normalized);
   } catch (err) {
@@ -120,7 +126,12 @@ router.post('/scan-label', (req, res, next) => {
       return sendError(res, 502, result.error);
     }
 
-    const { normalizeLabelScanResult } = getNutrition();
+    const nutrition = getNutrition();
+    const normalizeLabelScanResult = nutrition.normalizeLabelScanResult;
+    if (typeof normalizeLabelScanResult !== 'function') {
+      console.error('[ai] normalizeLabelScanResult manquant:', typeof normalizeLabelScanResult);
+      return sendError(res, 500, 'internal_error');
+    }
     const normalized = normalizeLabelScanResult(result.data);
     sendScanLabelSuccess(res, normalized);
   } catch (err) {
