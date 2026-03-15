@@ -46,7 +46,7 @@ import Foundation
 enum AppConfig {
 
     /// URL de base du backend FitScan (Railway).
-    static let backendBaseURL: String = "https://fitscan-program-backend-production.up.railway.app"
+    static let backendBaseURL: String = "https://fitscan-backend-production.up.railway.app"
 
     static var fitscanBackendBaseURL: String { backendBaseURL }
 
