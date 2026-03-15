@@ -7,8 +7,8 @@ Copie ce document et envoie-le à l’équipe backend pour qu’elle sache exact
 ## 1. Endpoint
 
 - **URL :** `POST {baseURL}/ai/scan-food`
-- **Base URL :** `https://fitscan-program-backend-production.up.railway.app`
-- **URL complète :** `https://fitscan-program-backend-production.up.railway.app/ai/scan-food`
+- **Base URL :** `https://fitscan-backend-production.up.railway.app`
+- **URL complète :** `https://fitscan-backend-production.up.railway.app/ai/scan-food`
 
 ---
 
@@ -18,7 +18,7 @@ Copie ce document et envoie-le à l’équipe backend pour qu’elle sache exact
 
 ```
 POST /ai/scan-food HTTP/1.1
-Host: fitscan-program-backend-production.up.railway.app
+Host: fitscan-backend-production.up.railway.app
 Content-Type: multipart/form-data; boundary=ScanAPI-{UUID}
 ```
 
@@ -60,10 +60,20 @@ Content-Type: image/jpeg\r\n
   "success": true,
   "mode": "scan_food",
   "dishName": "Poulet riz brocolis",
+  "name": "Poulet riz brocolis",
+  "foodType": "multi_ingredient_meal",
   "estimatedCalories": 450,
   "proteinG": 35,
   "carbsG": 60,
   "fatG": 10,
+  "displayProteinG": 35,
+  "displayCarbsG": 60,
+  "displayFatG": 10,
+  "estimatedFiberG": 4,
+  "processingLevel": "low",
+  "healthScore": 7.2,
+  "healthScoreDisplay": 7,
+  "healthScoreReasoning": ["Source de protéines de qualité", "Riche en protéines", "Féculent ou légumineuse peu transformé(e)"],
   "confidence": 0.92,
   "items": [
     { "name": "Poulet", "grams": 150 },
@@ -78,10 +88,20 @@ Content-Type: image/jpeg\r\n
 | `success` | boolean | Oui | `true` pour succès |
 | `mode` | string | Optionnel | ex. `"scan_food"` |
 | `dishName` | string | Recommandé | Nom du plat |
+| `name` | string | Optionnel | Alias de dishName |
+| `foodType` | string | Optionnel | `single_food`, `multi_ingredient_meal`, `packaged_product` |
 | `estimatedCalories` | int | Oui | Calories (kcal) |
-| `proteinG` | int | Oui | Protéines (g) |
-| `carbsG` | int | Oui | Glucides (g) |
-| `fatG` | int | Oui | Lipides (g) |
+| `proteinG` | number | Oui | Protéines (g), valeur précise |
+| `carbsG` | number | Oui | Glucides (g) |
+| `fatG` | number | Oui | Lipides (g) |
+| `displayProteinG` | int | Optionnel | Protéines arrondies pour affichage |
+| `displayCarbsG` | int | Optionnel | Glucides arrondis pour affichage |
+| `displayFatG` | int | Optionnel | Lipides arrondis pour affichage |
+| `estimatedFiberG` | number | Optionnel | Fibres estimées (g) |
+| `processingLevel` | string | Optionnel | `minimal`, `low`, `moderate`, `high`, `ultra` |
+| `healthScore` | number | Optionnel | Score santé 0–10 (décimal) |
+| `healthScoreDisplay` | int | Optionnel | Score santé arrondi 0–10 |
+| `healthScoreReasoning` | array | Optionnel | Liste de strings expliquant le score |
 | `confidence` | double | Optionnel | 0–1 |
 | `items` | array | Optionnel | Liste `{ name: string, grams?: int }` |
 | `notes` | array | Optionnel | Liste de strings |
