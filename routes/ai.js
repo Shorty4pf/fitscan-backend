@@ -15,6 +15,12 @@ const nutrition = require('../services/nutrition');
 
 const router = express.Router();
 
+// Diagnostic : vérifier que le module nutrition est chargé (pour debug déploiement)
+router.get('/ready', (req, res) => {
+  const hasNorm = typeof nutrition.normalizeFoodScanResult === 'function';
+  res.status(200).json({ ok: true, nutrition: hasNorm });
+});
+
 const { MAX_SIZE_BYTES, ALLOWED_MIME_TYPES } = require('../utils/image');
 
 // Multer : stockage en mémoire, validation taille et type
@@ -80,12 +86,19 @@ router.post('/scan-food', (req, res, next) => {
     }
 
     const raw = result.data != null ? result.data : {};
-    const normalized = nutrition.normalizeFoodScanResult(raw);
+    let normalized;
+    try {
+      normalized = nutrition.normalizeFoodScanResult(raw);
+    } catch (normErr) {
+      console.error('[ai] scan-food normalizeFoodScanResult error:', normErr?.message ?? normErr);
+      if (normErr?.stack) console.error('[ai] stack:', normErr.stack);
+      return sendError(res, 500, 'internal_error');
+    }
     sendScanFoodSuccess(res, normalized);
   } catch (err) {
     console.error('[ai] scan-food error:', err?.message ?? err);
     if (err?.stack) console.error('[ai] stack:', err.stack);
-    sendError(res, 500, 'internal_error');
+    return sendError(res, 500, 'internal_error');
   }
 });
 
