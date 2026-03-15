@@ -9,8 +9,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
-// Charger nutrition en premier pour qu'il soit complet dans le cache (évite "normalizeFoodScanResult n'est pas une fonction")
-require('./services/nutrition');
+// Ne pas précharger nutrition pour éviter tout crash au démarrage ; chargement à la demande dans les routes
 const aiRoutes = require('./routes/ai');
 const nutritionRoutes = require('./routes/nutrition');
 const { sendError } = require('./utils/errors');
@@ -62,6 +61,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`FitScan Backend démarré sur le port ${PORT}`);
   console.log(`  GET  /health`);
+  console.log(`  GET  /ai/ready (diagnostic nutrition)`);
   console.log(`  GET  /version`);
   console.log(`  POST /ai/scan-food`);
   console.log(`  POST /ai/scan-label`);
