@@ -25,7 +25,12 @@ router.get('/ready', (req, res) => {
   try {
     const nutrition = getNutrition();
     const hasNorm = typeof nutrition.normalizeFoodScanResult === 'function';
-    res.status(200).json({ ok: true, nutrition: hasNorm });
+    const body = { ok: true, nutrition: hasNorm };
+    if (!hasNorm && nutrition && typeof nutrition === 'object') {
+      body.nutritionKeys = Object.keys(nutrition).filter((k) => typeof nutrition[k] === 'function').slice(0, 20);
+      body.hasGlobal = typeof global.__fitscanNutrition !== 'undefined';
+    }
+    res.status(200).json(body);
   } catch (e) {
     res.status(200).json({ ok: true, nutrition: false, loadError: (e && e.message) || 'unknown' });
   }
@@ -97,13 +102,39 @@ router.post('/scan-food', (req, res, next) => {
 
     const raw = result.data != null ? result.data : {};
     const nutrition = getNutrition();
+    const normFn = nutrition && nutrition.normalizeFoodScanResult;
     let normalized;
-    try {
-      normalized = nutrition.normalizeFoodScanResult(raw);
-    } catch (normErr) {
-      console.error('[ai] scan-food normalizeFoodScanResult error:', normErr?.message ?? normErr);
-      if (normErr?.stack) console.error('[ai] stack:', normErr.stack);
-      return sendError(res, 500, 'internal_error');
+    if (typeof normFn === 'function') {
+      try {
+        normalized = normFn(raw);
+      } catch (normErr) {
+        console.error('[ai] scan-food normalizeFoodScanResult error:', normErr?.message ?? normErr);
+        if (normErr?.stack) console.error('[ai] stack:', normErr.stack);
+        return sendError(res, 500, 'internal_error');
+      }
+    } else {
+      // Fallback si le module nutrition est incomplet (déploiement / cache)
+      const n = (v) => (typeof v === 'number' && !Number.isNaN(v) && v >= 0 ? v : 0);
+      normalized = {
+        dishName: (raw.dishName && String(raw.dishName).trim()) || '',
+        name: (raw.dishName && String(raw.dishName).trim()) || '',
+        foodType: 'single_food',
+        estimatedCalories: Math.round(n(Number(raw.estimatedCalories))),
+        proteinG: n(Number(raw.proteinG)),
+        carbsG: n(Number(raw.carbsG)),
+        fatG: n(Number(raw.fatG)),
+        displayProteinG: Math.round(n(Number(raw.proteinG))),
+        displayCarbsG: Math.round(n(Number(raw.carbsG))),
+        displayFatG: Math.round(n(Number(raw.fatG))),
+        estimatedFiberG: n(Number(raw.estimatedFiberG)),
+        processingLevel: (raw.processingLevel && String(raw.processingLevel).toLowerCase()) || 'moderate',
+        healthScore: 5,
+        healthScoreDisplay: 5,
+        healthScoreReasoning: [],
+        confidence: Math.min(1, Math.max(0, Number(raw.confidence) || 0)),
+        items: Array.isArray(raw.items) ? raw.items.filter((i) => i && i.name).map((i) => ({ name: String(i.name), grams: Math.max(0, Number(i.grams) || 0) })) : [],
+        notes: Array.isArray(raw.notes) ? raw.notes.filter((n) => typeof n === 'string').map((s) => s.trim()) : [],
+      };
     }
     sendScanFoodSuccess(res, normalized);
   } catch (err) {
