@@ -3,17 +3,14 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Fichiers de dépendances
+# Dépendances d'abord (meilleur cache)
 COPY package.json package-lock.json* ./
-
-# Installation des dépendances (sans dev)
 RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
 
-# Code source (TOUT le projet : server.js + routes/ + services/ + utils/)
-COPY server.js ./
-COPY routes ./routes
-COPY services ./services
-COPY utils ./utils
+# Tout le code (server.js, routes/, services/, utils/, tests/) en une fois.
+# services/ doit contenir : openai.js, nutrition.js, healthScore.js, barcode.js
+# .dockerignore exclut node_modules, .env, .git, etc.
+COPY . .
 
 # Port exposé (Railway, Render, etc. injectent PORT)
 ENV NODE_ENV=production
