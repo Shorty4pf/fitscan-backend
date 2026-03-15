@@ -1,231 +1,107 @@
 /**
- * Normalisation des réponses nutritionnelles renvoyées par OpenAI.
- * Valeurs internes précises vs valeurs d'affichage arrondies.
- * Intégration du score santé (healthScore, healthScoreReasoning).
+ * Validation et préparation des images pour l'API OpenAI.
+ * Vérifications : présence du fichier, type MIME, taille min/max, image exploitable.
  */
 
-const { computeHealthScore } = require('./healthScore');
+const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MIN_SIZE_BYTES = 50; // fichier non vide, image exploitable
+// JPEG et PNG uniquement : OpenAI Vision ne supporte pas HEIC. L'app iOS doit envoyer du JPEG (ex. jpegData).
+const ALLOWED_MIME_TYPES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+];
 
 /**
- * Arrondit une valeur numérique de manière sûre.
- * @param {number} value - Valeur à arrondir
- * @param {number} decimals - Nombre de décimales
- * @returns {number}
+ * Vérifie que le fichier uploadé existe (multer a bien reçu un fichier).
+ * @param {object} file - Fichier multer (req.file)
+ * @returns {{ valid: boolean, error?: string }}
  */
-function safeRound(value, decimals = 0) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return 0;
+function validateFileExists(file) {
+  if (!file || !file.buffer) {
+    return { valid: false, error: 'invalid_image' };
   }
-  const n = Number(value);
-  const factor = 10 ** decimals;
-  return Math.round(n * factor) / factor;
+  return { valid: true };
 }
 
 /**
- * Clamp une valeur entre min et max.
- * @param {number} value - Valeur
- * @param {number} min - Minimum
- * @param {number} max - Maximum
- * @returns {number}
+ * Vérifie le type MIME du fichier.
+ * @param {string} mimeType - Type MIME (ex: image/jpeg)
+ * @returns {{ valid: boolean, error?: string }}
  */
-function clampNumber(value, min, max) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return min;
+function validateMimeType(mimeType) {
+  if (!mimeType || !ALLOWED_MIME_TYPES.includes(mimeType.toLowerCase())) {
+    return { valid: false, error: 'invalid_image' };
   }
-  const n = Number(value);
-  return Math.max(min, Math.min(max, n));
+  return { valid: true };
 }
 
 /**
- * Parse une valeur en nombre non négatif, clamp à 0.
- * @param {*} value
- * @returns {number}
+ * Vérifie que la taille du fichier est dans une plage exploitable (min/max).
+ * @param {number} size - Taille en octets
+ * @returns {{ valid: boolean, error?: string }}
  */
-function toNonNegativeNumber(value) {
-  const n = Number(value);
-  if (Number.isNaN(n) || n < 0) return 0;
-  return safeRound(n, 0);
-}
-
-/**
- * Valeur interne précise (autorise décimales).
- * @param {*} value
- * @returns {number}
- */
-function toNonNegativePrecise(value) {
-  const n = Number(value);
-  if (Number.isNaN(n) || n < 0) return 0;
-  return safeRound(n, 2);
-}
-
-/**
- * Parse une valeur en confiance (0 à 1).
- * @param {*} value
- * @returns {number}
- */
-function toConfidence(value) {
-  return clampNumber(value, 0, 1);
-}
-
-/**
- * Arrondi "affichage" pour les macros : < 0.5 → 0, sinon entier le plus proche.
- * @param {number} value
- * @returns {number}
- */
-function toDisplayMacro(value) {
-  const n = Number(value);
-  if (Number.isNaN(n) || n < 0) return 0;
-  if (n < 0.5) return 0;
-  return Math.round(n);
-}
-
-/**
- * Normalise un item (aliment) du scan food.
- * @param {object} item - Item brut
- * @returns {object|null} - { name, grams } ou null si invalide
- */
-function normalizeFoodItem(item) {
-  if (!item || typeof item !== 'object') return null;
-  const name = typeof item.name === 'string' && item.name.trim()
-    ? item.name.trim()
-    : null;
-  if (!name) return null;
-  const grams = toNonNegativeNumber(item.grams);
-  return { name, grams };
-}
-
-const VALID_FOOD_TYPES = ['single_food', 'multi_ingredient_meal', 'packaged_product'];
-const VALID_PROCESSING_LEVELS = ['minimal', 'low', 'moderate', 'high', 'ultra'];
-
-function normalizeFoodType(value) {
-  const v = (value || '').toString().toLowerCase().trim();
-  return VALID_FOOD_TYPES.includes(v) ? v : 'single_food';
-}
-
-function normalizeProcessingLevel(value) {
-  const v = (value || '').toString().toLowerCase().trim();
-  return VALID_PROCESSING_LEVELS.includes(v) ? v : 'moderate';
-}
-
-/**
- * Normalise le résultat brut du scan food (réponse OpenAI).
- * - Valeurs internes précises (proteinG, carbsG, fatG avec décimales).
- * - Valeurs d'affichage (displayProteinG, displayCarbsG, displayFatG).
- * - Score santé et reasoning.
- * @param {object} raw - Réponse brute (après parse JSON)
- * @returns {object} - Objet normalisé pour l'API
- */
-function normalizeFoodScanResult(raw) {
-  const empty = {
-    dishName: '',
-    name: '',
-    foodType: 'single_food',
-    estimatedCalories: 0,
-    proteinG: 0,
-    carbsG: 0,
-    fatG: 0,
-    displayProteinG: 0,
-    displayCarbsG: 0,
-    displayFatG: 0,
-    estimatedFiberG: 0,
-    naturalSugarEstimate: 0,
-    addedSugarEstimate: 0,
-    processingLevel: 'moderate',
-    confidence: 0,
-    items: [],
-    notes: [],
-    healthScore: 5,
-    healthScoreDisplay: 5,
-    healthScoreReasoning: [],
-  };
-
-  if (!raw || typeof raw !== 'object') {
-    return empty;
+function validateSize(size) {
+  if (typeof size !== 'number' || Number.isNaN(size)) {
+    return { valid: false, error: 'invalid_image' };
   }
-
-  const items = Array.isArray(raw.items)
-    ? raw.items.map(normalizeFoodItem).filter(Boolean)
-    : [];
-
-  const notes = Array.isArray(raw.notes)
-    ? raw.notes.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim())
-    : [];
-
-  const dishName = typeof raw.dishName === 'string' && raw.dishName.trim()
-    ? raw.dishName.trim()
-    : '';
-
-  const proteinG = toNonNegativePrecise(raw.proteinG);
-  const carbsG = toNonNegativePrecise(raw.carbsG);
-  const fatG = toNonNegativePrecise(raw.fatG);
-
-  const normalized = {
-    dishName,
-    name: dishName,
-    foodType: normalizeFoodType(raw.foodType),
-    estimatedCalories: toNonNegativeNumber(raw.estimatedCalories),
-    proteinG,
-    carbsG,
-    fatG,
-    displayProteinG: toDisplayMacro(proteinG),
-    displayCarbsG: toDisplayMacro(carbsG),
-    displayFatG: toDisplayMacro(fatG),
-    estimatedFiberG: toNonNegativePrecise(raw.estimatedFiberG),
-    naturalSugarEstimate: toNonNegativePrecise(raw.naturalSugarEstimate),
-    addedSugarEstimate: toNonNegativePrecise(raw.addedSugarEstimate),
-    processingLevel: normalizeProcessingLevel(raw.processingLevel),
-    confidence: safeRound(toConfidence(raw.confidence), 2),
-    items,
-    notes,
-  };
-
-  const { healthScore, healthScoreDisplay, healthScoreReasoning } = computeHealthScore(normalized);
-  normalized.healthScore = healthScore;
-  normalized.healthScoreDisplay = healthScoreDisplay;
-  normalized.healthScoreReasoning = Array.isArray(healthScoreReasoning) ? healthScoreReasoning : [];
-
-  return normalized;
+  if (size < MIN_SIZE_BYTES || size > MAX_SIZE_BYTES) {
+    return { valid: false, error: 'invalid_image' };
+  }
+  return { valid: true };
 }
 
 /**
- * Normalise le résultat brut du scan label (étiquette nutritionnelle).
- * @param {object} raw - Réponse brute
- * @returns {object}
+ * Effectue toutes les validations sur un fichier multer.
+ * @param {object} file - req.file (multer)
+ * @returns {{ valid: boolean, error?: string }}
  */
-function normalizeLabelScanResult(raw) {
-  if (!raw || typeof raw !== 'object') {
-    return {
-      productName: null,
-      servingSize: null,
-      calories: 0,
-      proteinG: 0,
-      carbsG: 0,
-      fatG: 0,
-      confidence: 0,
-    };
-  }
+function validateImageFile(file) {
+  const exists = validateFileExists(file);
+  if (!exists.valid) return exists;
 
-  return {
-    productName: typeof raw.productName === 'string' && raw.productName.trim()
-      ? raw.productName.trim()
-      : null,
-    servingSize: typeof raw.servingSize === 'string' && raw.servingSize.trim()
-      ? raw.servingSize.trim()
-      : null,
-    calories: toNonNegativeNumber(raw.calories),
-    proteinG: toNonNegativeNumber(raw.proteinG),
-    carbsG: toNonNegativeNumber(raw.carbsG),
-    fatG: toNonNegativeNumber(raw.fatG),
-    confidence: toConfidence(raw.confidence),
-  };
+  const mime = validateMimeType(file.mimetype);
+  if (!mime.valid) return mime;
+
+  const size = validateSize(file.size);
+  if (!size.valid) return size;
+
+  return { valid: true };
+}
+
+/**
+ * Convertit un buffer en base64 pour l'envoi à l'API OpenAI.
+ * @param {Buffer} buffer - Contenu du fichier
+ * @param {string} mimeType - Type MIME (ex: image/jpeg)
+ * @returns {string} - Data URL base64
+ */
+function toBase64DataUrl(buffer, mimeType) {
+  const base64 = buffer.toString('base64');
+  const normalizedMime = mimeType.toLowerCase();
+  return `data:${normalizedMime};base64,${base64}`;
+}
+
+/**
+ * Prépare l'image pour OpenAI : validation + conversion base64.
+ * @param {object} file - req.file (multer)
+ * @returns {{ valid: boolean, dataUrl?: string, error?: string }}
+ */
+function prepareImageForOpenAI(file) {
+  const validation = validateImageFile(file);
+  if (!validation.valid) {
+    return { valid: false, error: validation.error };
+  }
+  const dataUrl = toBase64DataUrl(file.buffer, file.mimetype);
+  return { valid: true, dataUrl };
 }
 
 module.exports = {
-  safeRound,
-  clampNumber,
-  toNonNegativeNumber,
-  toConfidence,
-  normalizeFoodItem,
-  normalizeFoodScanResult,
-  normalizeLabelScanResult,
+  MAX_SIZE_BYTES,
+  ALLOWED_MIME_TYPES,
+  validateFileExists,
+  validateMimeType,
+  validateSize,
+  validateImageFile,
+  toBase64DataUrl,
+  prepareImageForOpenAI,
 };
