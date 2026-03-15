@@ -5,11 +5,11 @@
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 const MIN_SIZE_BYTES = 50; // fichier non vide, image exploitable
+// JPEG et PNG uniquement : OpenAI Vision ne supporte pas HEIC. L'app iOS doit envoyer du JPEG (ex. jpegData).
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
   'image/jpg',
   'image/png',
-  'image/heic',
 ];
 
 /**
