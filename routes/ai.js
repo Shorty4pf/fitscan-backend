@@ -82,6 +82,7 @@ router.post('/scan-food', (req, res, next) => {
     sendScanFoodSuccess(res, normalized);
   } catch (err) {
     console.error('[ai] scan-food error:', err?.message ?? err);
+    if (err?.stack) console.error('[ai] stack:', err.stack);
     sendError(res, 500, 'internal_error');
   }
 });
