@@ -256,10 +256,4 @@ function buildHealthScoreReasoning(f, sub, score) {
 module.exports = {
   detectWholeFood,
   computeHealthScore,
-  computeSubScores,
-  buildHealthScoreReasoning,
-  FRUIT_KEYWORDS,
-  VEGETABLE_KEYWORDS,
-  WHOLE_PROTEIN_KEYWORDS,
-  ULTRA_PROCESSED_KEYWORDS,
 };
