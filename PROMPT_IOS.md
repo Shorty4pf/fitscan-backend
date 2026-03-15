@@ -11,7 +11,7 @@ Copie le bloc ci‑dessous et colle‑le dans le chat Cursor (ou envoie‑le au 
 **Contrat backend :**
 
 - **Endpoint :** `POST /ai/scan-food`
-- **Base URL :** `https://fitscan-program-backend-production.up.railway.app` (ou `http://localhost:3000` en dev). La clé OpenAI reste côté backend, jamais dans l’app.
+- **Base URL :** `https://fitscan-backend-production.up.railway.app` (ou `http://localhost:3000` en dev). La clé OpenAI reste côté backend, jamais dans l’app.
 - **Body :** `multipart/form-data`, champ **`image`** (fichier). Le backend n’accepte que **JPEG ou PNG**. Sur iOS, envoyer du JPEG avec `image.jpegData(compressionQuality: 0.8)` pour éviter le HEIC qui est refusé.
 - **Réponse succès (200) :** JSON de ce type (tous les champs présents, décodable en Codable) :
   ```json
@@ -36,7 +36,7 @@ Copie le bloc ci‑dessous et colle‑le dans le chat Cursor (ou envoie‑le au 
 
 **À faire côté iOS :**
 
-1. **AppConfig** (ou équivalent) : URL de base `https://fitscan-program-backend-production.up.railway.app`, utilisée pour construire l’URL de `POST .../ai/scan-food`. Timeout conseillé : 60 s.
+1. **AppConfig** (ou équivalent) : URL de base `https://fitscan-backend-production.up.railway.app`, utilisée pour construire l’URL de `POST .../ai/scan-food`. Timeout conseillé : 60 s.
 2. **Requête :** POST en `multipart/form-data`, champ nommé exactement **`image`**, fichier JPEG (pas HEIC). Content-Type du fichier : `image/jpeg`, filename par ex. `image.jpg`.
 3. **Modèles Codable :** struct pour la réponse succès avec `success`, `mode`, `dishName`, `estimatedCalories`, `proteinG`, `carbsG`, `fatG`, `confidence`, `items` (tableau de `{ name: String, grams: Int? }`), `notes` (tableau de String). Struct pour les erreurs avec `success`, `error`.
 4. **Affichage :** utiliser `dishName`, `estimatedCalories`, `proteinG`, `carbsG`, `fatG` pour l’écran résultat (ex. FoodScanBackendResult / ScannedMealDisplayModel). Afficher la liste `items` si tu veux montrer le détail des aliments détectés.
