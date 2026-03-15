@@ -34,27 +34,32 @@ function toJournalFormat(data, mode) {
  * score santé (healthScore, healthScoreDisplay, healthScoreReasoning), foodType, processingLevel, fibres.
  */
 function sendScanFoodSuccess(res, data) {
+  const toInt = (v) => Math.round(Number(v) || 0);
+  const items = (data.items ?? []).map((i) => ({
+    name: (i && i.name != null) ? String(i.name) : '',
+    grams: toInt(i && i.grams),
+  })).filter((i) => i.name !== '');
   const body = {
     success: true,
     mode: 'scan_food',
     dishName: data.dishName ?? '',
     name: data.name ?? data.dishName ?? '',
     foodType: data.foodType ?? 'single_food',
-    estimatedCalories: data.estimatedCalories ?? 0,
-    proteinG: data.proteinG ?? 0,
-    carbsG: data.carbsG ?? 0,
-    fatG: data.fatG ?? 0,
-    displayProteinG: data.displayProteinG ?? Math.round(data.proteinG ?? 0),
-    displayCarbsG: data.displayCarbsG ?? Math.round(data.carbsG ?? 0),
-    displayFatG: data.displayFatG ?? Math.round(data.fatG ?? 0),
-    estimatedFiberG: data.estimatedFiberG ?? 0,
+    estimatedCalories: toInt(data.estimatedCalories),
+    proteinG: toInt(data.displayProteinG ?? data.proteinG),
+    carbsG: toInt(data.displayCarbsG ?? data.carbsG),
+    fatG: toInt(data.displayFatG ?? data.fatG),
+    displayProteinG: toInt(data.displayProteinG ?? data.proteinG),
+    displayCarbsG: toInt(data.displayCarbsG ?? data.carbsG),
+    displayFatG: toInt(data.displayFatG ?? data.fatG),
+    estimatedFiberG: Number(data.estimatedFiberG) || 0,
     processingLevel: data.processingLevel ?? 'moderate',
-    healthScore: data.healthScore ?? 5,
-    healthScoreDisplay: data.healthScoreDisplay ?? 5,
-    healthScoreReasoning: data.healthScoreReasoning ?? [],
-    confidence: data.confidence ?? 0,
-    items: data.items ?? [],
-    notes: data.notes ?? [],
+    healthScore: Number(data.healthScore) || 5,
+    healthScoreDisplay: toInt(data.healthScoreDisplay ?? data.healthScore),
+    healthScoreReasoning: Array.isArray(data.healthScoreReasoning) ? data.healthScoreReasoning : [],
+    confidence: Number(data.confidence) || 0,
+    items,
+    notes: Array.isArray(data.notes) ? data.notes : [],
   };
   res.status(200).json(body);
 }
