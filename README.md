@@ -119,7 +119,8 @@ curl -X POST http://localhost:3000/ai/scan-label \
 **POST** `/nutrition/scan/barcode` — Body JSON `{ "barcode": "..." }` uniquement. Recherche via Open Food Facts.  
 Réponse 200 : `{ success, name, calories, protein, carbs, fats, servingSize?, image_url?, imageUrl?, image_front_url? }`. Les champs `image_*` contiennent l’URL de l’image produit quand Open Food Facts en fournit une ; l’app les utilise pour afficher la photo (ex. `resolvedImageUrl = image_url ?? imageUrl ?? image_front_url`).  
 Réponse 404 : produit non trouvé. **C’est le seul endpoint code-barres appelé par l’app** (NutritionScanAPI.swift). En cas de 404, l’app peut faire un fallback en interrogeant Open Food Facts directement (« Backend 404 – fallback Open Food Facts pour barcode »).  
-**Timeout** : le backend attend Open Food Facts jusqu’à 10 s ; avec cold start (ex. Railway), la réponse peut dépasser 10 s. Côté app, utiliser un timeout de **15–20 s** pour cette requête (ex. `URLSessionConfiguration.timeoutIntervalForRequest`), et en cas d’expiration (NSURLErrorTimedOut / Code -1001) faire aussi le fallback vers Open Food Facts direct.
+**Timeout** : le backend attend Open Food Facts jusqu’à 10 s ; avec cold start (ex. Railway), la réponse peut dépasser 10 s. Côté app, utiliser un timeout de **15–20 s** pour cette requête (ex. `URLSessionConfiguration.timeoutIntervalForRequest`), et en cas d’expiration (NSURLErrorTimedOut / Code -1001) faire aussi le fallback vers Open Food Facts direct.  
+**Fallback OFF** : utiliser l’API **v2** (comme le backend), pas la v0. URL : `https://world.openfoodfacts.org/api/v2/product/{barcode}.json` (et non `.../api/v0/product/...`). La v0 est plus lente et expire souvent. Timeout 15–20 s pour l’appel OFF aussi.
 
 ### Autres routes
 
@@ -145,8 +146,20 @@ utils/
 
 ## Contraintes images
 
-- **Types acceptés** : `image/jpeg`, `image/jpg`, `image/png`, `image/heic`
-- **Taille max** : 10 Mo
+- **Types acceptés** : `image/jpeg`, `image/jpg`, `image/png` uniquement (pas de HEIC : OpenAI ne le supporte pas ; l’app iOS doit envoyer du JPEG, ex. `image.jpegData(compressionQuality: 0.8)`).
+- **Taille** : entre 50 octets et 10 Mo.
+
+## Dépannage (scan-food ne marche pas)
+
+1. **Vérifier la clé API** : le fichier `.env` doit contenir `OPENAI_API_KEY=sk-...`. Sans clé, la réponse est `503` avec `"error": "missing_api_key"`.
+2. **Format de l’image** : le backend n’accepte que JPEG et PNG. Si l’app envoie du HEIC, tu obtiens `invalid_image`. Côté iOS, envoyer systématiquement du JPEG : `image.jpegData(compressionQuality: 0.8)`.
+3. **Nom du champ** : le body doit être `multipart/form-data` avec le champ **`image`** (pas `file` ni autre).
+4. **Tester en local** : lancer le serveur (`npm start`), puis :
+   ```bash
+   curl -X POST http://localhost:3000/ai/scan-food -F "image=@/chemin/vers/photo.jpg"
+   ```
+   Si ça répond en JSON (succès ou erreur), le backend fonctionne ; regarder les logs du serveur en cas de `ai_failed` ou `invalid_response`.
+5. **Logs serveur** : en cas d’échec, le backend log désormais la cause (erreur OpenAI, début de la réponse invalide). Consulter la console où tourne `node server.js`.
 
 ## Codes d’erreur
 
