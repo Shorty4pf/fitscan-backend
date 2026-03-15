@@ -12,6 +12,9 @@ const { analyzeFoodImage, analyzeNutritionLabelImage, getClient } = require('../
 const { lookupBarcode } = require('../services/barcode');
 
 function getNutrition() {
+  if (typeof global.__fitscanNutrition === 'object' && global.__fitscanNutrition !== null) {
+    return global.__fitscanNutrition;
+  }
   return require('../services/nutrition');
 }
 
