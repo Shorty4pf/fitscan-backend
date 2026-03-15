@@ -4,9 +4,38 @@ Ce document contient tout le code Swift à ajouter dans ton projet Xcode pour co
 
 ---
 
+## Contrat backend (POST /ai/scan-food)
+
+Le backend expose **POST /ai/scan-food** avec :
+
+- **Body :** `multipart/form-data`, champ **`image`** (fichier JPEG ou PNG ; pas de HEIC — côté iOS, utiliser `image.jpegData(compressionQuality: 0.8)`).
+- **Réponse JSON (exemple) :**
+```json
+{
+  "success": true,
+  "dishName": "Poulet riz brocolis",
+  "estimatedCalories": 450,
+  "proteinG": 35,
+  "carbsG": 60,
+  "fatG": 10,
+  "confidence": 0.92,
+  "items": [
+    {"name": "Poulet", "grams": 150},
+    {"name": "Riz", "grams": 120}
+  ],
+  "notes": []
+}
+```
+- **Champs optionnels** : gérés avec des fallbacks côté app (nom par défaut, 0 pour les macros).
+- **`items`** et **`notes`** : décodés et utilisables pour afficher la liste des aliments détectés ; l’écran résultat actuel utilise déjà le mapping vers `FoodScanBackendResult` / `ScannedMealDisplayModel`.
+
+---
+
 ## 1. Config backend (1 fichier)
 
 **Dans Xcode :** File → New → File → Swift File → nommer `AppConfig.swift`.
+
+Remplace `https://ton-vrai-backend.up.railway.app` par l’URL réelle de ton backend (ex. ton app Railway).
 
 ```swift
 //
@@ -18,14 +47,10 @@ import Foundation
 
 enum AppConfig {
 
-    /// URL de base du backend. Sur iPhone physique, remplacer par l’IP de ton Mac (ex: http://192.168.1.10:3000).
-    static var fitscanBackendBaseURL: String {
-        #if targetEnvironment(simulator)
-        return "http://localhost:3000"
-        #else
-        return "http://192.168.1.10:3000"
-        #endif
-    }
+    /// URL de base du backend. Remplacer par ton URL Railway (ou localhost pour le dev).
+    static let backendBaseURL: String = "https://ton-vrai-backend.up.railway.app"
+
+    static var fitscanBackendBaseURL: String { backendBaseURL }
 
     static var fitscanBackendURL: URL? {
         URL(string: fitscanBackendBaseURL)
@@ -34,6 +59,8 @@ enum AppConfig {
     static let networkTimeout: TimeInterval = 60
 }
 ```
+
+**Pour le dev local :** tu peux temporairement mettre `"http://localhost:3000"` (simulateur) ou `"http://<IP-de-ton-Mac>:3000"` (iPhone physique).
 
 ---
 
