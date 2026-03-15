@@ -2,6 +2,8 @@
 
 Backend Node.js/Express pour l’app iOS FitScan. Analyse des photos de nourriture et d’étiquettes via OpenAI. La clé API OpenAI reste **uniquement côté serveur**, jamais exposée à l’app.
 
+**Contrat iOS ↔ backend (scan food) :** voir [CONTRACT_SCAN_FOOD_IOS.md](./CONTRACT_SCAN_FOOD_IOS.md) pour le détail de ce que l’app envoie et attend en retour.
+
 ## Prérequis
 
 - Node.js (v18 ou plus recommandé)
