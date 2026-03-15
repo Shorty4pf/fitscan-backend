@@ -130,6 +130,16 @@ Réponse 404 : produit non trouvé. **C’est le seul endpoint code-barres appel
 
 **POST** `/nutrition/scan` — Body multipart : `image` (optionnel), `barcode` (optionnel), `type` optionnel (`food` ou `label`). Au moins un de image/barcode. Réponse succès : `{ "success": true, "name", "calories", "protein", "carbs", "fats" }` (+ champs image en cas de barcode). Erreurs : `{ "success": false, "error", "message" }`.
 
+## Score santé (scan-food)
+
+Le backend calcule un **score santé 0–10** et des **raisons** (`healthScoreReasoning`) à partir de :
+- type d’aliment (single_food, multi_ingredient_meal, packaged_product) et niveau de transformation (minimal → ultra) ;
+- détection des aliments bruts (fruits, légumes, protéines, céréales, lipides de qualité) avec **whole food bonus** ;
+- distinction sucre naturel / sucre ajouté, fibres estimées ;
+- garde-fous : un fruit ou un légume entier ne descend pas en dessous d’un score raisonnable.
+
+Les macros sont renvoyées en **valeurs précises** (`proteinG`, `carbsG`, `fatG`) et en **valeurs d’affichage** (`displayProteinG`, etc.). Tests : `npm test`.
+
 ## Structure du projet
 
 ```
@@ -138,12 +148,15 @@ routes/ai.js        # Routes /ai/scan-food, /ai/scan-label, /ai/scan-barcode
 routes/nutrition.js # POST /nutrition/scan (unifié, format journal)
 services/
   openai.js         # Appels OpenAI (vision)
-  nutrition.js      # Normalisation des réponses (clamp, arrondis)
+  nutrition.js      # Normalisation (arrondis, display vs interne, score santé)
+  healthScore.js    # Moteur score santé (whole food, reasoning, garde-fous)
   barcode.js        # Lookup code-barres (Open Food Facts)
 utils/
   image.js          # Validation image (MIME, taille, base64)
   errors.js         # Codes d’erreur et envoi des réponses d’erreur
   response.js       # Format des réponses succès (scan_food, scan_label)
+tests/
+  healthScore.test.js  # Tests score santé et normalisation
 ```
 
 ## Contraintes images
