@@ -9,8 +9,8 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
-// Précharger nutrition pour que le cache Node contienne le module complet (évite nutrition: false sur /ai/ready)
-require('./services/nutrition');
+// Précharger nutrition et l'exposer globalement pour que les routes utilisent la même instance (évite nutrition: false)
+global.__fitscanNutrition = require('./services/nutrition');
 const aiRoutes = require('./routes/ai');
 const nutritionRoutes = require('./routes/nutrition');
 const { sendError } = require('./utils/errors');
