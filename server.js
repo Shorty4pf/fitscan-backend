@@ -9,6 +9,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
+// Charger /ai avant /nutrition pour que services/nutrition soit initialisé en premier (évite dépendance circulaire)
 const aiRoutes = require('./routes/ai');
 const nutritionRoutes = require('./routes/nutrition');
 const { sendError } = require('./utils/errors');
