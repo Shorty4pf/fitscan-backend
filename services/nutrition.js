@@ -4,6 +4,7 @@
  */
 
 const express = require('express');
+const { detectWholeFood, computeHealthScore } = require('../services/healthScore');
 const multer = require('multer');
 const { sendError } = require('../utils/errors');
 const {
@@ -13,16 +14,11 @@ const {
 } = require('../utils/response');
 const { prepareImageForOpenAI } = require('../utils/image');
 const { analyzeFoodImage, analyzeNutritionLabelImage, getClient } = require('../services/openai');
-const { normalizeFoodScanResult, normalizeLabelScanResult } = require('../services/nutrition');
 const { lookupBarcode } = require('../services/barcode');
-let detectWholeFood, computeHealthScore;
-try {
-  const healthScore = require('../services/healthScore');
-  detectWholeFood = healthScore.detectWholeFood;
-  computeHealthScore = healthScore.computeHealthScore;
-} catch (_) {
-  detectWholeFood = null;
-  computeHealthScore = null;
+
+// Chargement paresseux pour éviter la dépendance circulaire (nutrition utilisé uniquement dans les handlers)
+function getNutrition() {
+  return require('../services/nutrition');
 }
 
 const router = express.Router();
@@ -91,6 +87,7 @@ router.post('/scan', (req, res, next) => {
         if (!result.ok) {
           return sendNutritionScanError(res, 502, result.error, 'Lecture de l\'étiquette impossible. Réessayez.');
         }
+        const { normalizeLabelScanResult } = getNutrition();
         const normalized = normalizeLabelScanResult(result.data);
         const journal = toJournalFormat(normalized, 'scan_label');
         return sendNutritionScanSuccess(res, journal);
@@ -100,6 +97,7 @@ router.post('/scan', (req, res, next) => {
       if (!result.ok) {
         return sendNutritionScanError(res, 502, result.error, 'Analyse du plat impossible. Réessayez.');
       }
+      const { normalizeFoodScanResult } = getNutrition();
       const normalized = normalizeFoodScanResult(result.data);
       const journal = toJournalFormat(normalized, 'scan_food');
       return sendNutritionScanSuccess(res, journal);
