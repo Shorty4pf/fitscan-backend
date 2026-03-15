@@ -1,291 +1,187 @@
 /**
- * Normalisation des réponses nutritionnelles renvoyées par OpenAI.
- * Valeurs internes précises vs valeurs d'affichage arrondies.
- * Score santé intégré (aucune dépendance à healthScore.js pour le démarrage).
+ * Endpoint unifié pour le scan nutrition (spec app iOS).
+ * POST /nutrition/scan : image et/ou barcode → réponse { name, calories, protein, carbs, fats }.
  */
 
-// --- Score santé (logique inline pour éviter MODULE_NOT_FOUND en conteneur) ---
-const FRUITS = ['pomme', 'banane', 'orange', 'poire', 'kiwi', 'raisin', 'fraise', 'brocoli', 'concombre', 'carotte', 'tomate', 'salade', 'avocat', 'noix', 'amande', 'poulet', 'dinde', 'œuf', 'oeuf', 'saumon', 'riz', 'quinoa', 'avoine', 'flocon'];
-const ULTRA = ['biscuit', 'gâteau', 'viennoiserie', 'soda', 'chips', 'burger', 'pizza', 'barre chocolat', 'bonbon', 'donut'];
-
-function _norm(s) {
-  if (!s || typeof s !== 'string') return '';
-  return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
+const express = require('express');
+const multer = require('multer');
+const { sendError } = require('../utils/errors');
+const {
+  sendNutritionScanSuccess,
+  sendNutritionScanError,
+  toJournalFormat,
+} = require('../utils/response');
+const { prepareImageForOpenAI } = require('../utils/image');
+const { analyzeFoodImage, analyzeNutritionLabelImage, getClient } = require('../services/openai');
+const { normalizeFoodScanResult, normalizeLabelScanResult } = require('../services/nutrition');
+const { lookupBarcode } = require('../services/barcode');
+let detectWholeFood, computeHealthScore;
+try {
+  const healthScore = require('../services/healthScore');
+  detectWholeFood = healthScore.detectWholeFood;
+  computeHealthScore = healthScore.computeHealthScore;
+} catch (_) {
+  detectWholeFood = null;
+  computeHealthScore = null;
 }
 
-function _contains(text, keywords) {
-  const n = _norm(text);
-  return keywords.some((k) => n.includes(_norm(k)));
-}
+const router = express.Router();
+const { MAX_SIZE_BYTES, ALLOWED_MIME_TYPES } = require('../utils/image');
 
-function _wholeCategory(f) {
-  const name = (f.dishName || f.name || '').trim();
-  const lvl = (f.processingLevel || '').toLowerCase();
-  const items = Array.isArray(f.items) ? f.items : [];
-  const text = `${name} ${items.map((i) => (i && i.name) || '').join(' ')}`.trim();
-  if (_contains(text, ULTRA) && lvl.includes('ultra')) return { category: 'ultra_processed', isWhole: false };
-  if (_contains(text, ['avocat', 'noix', 'amande'])) return { category: 'healthy_fat', isWhole: true };
-  if (_contains(text, ['pomme', 'banane', 'orange', 'poire', 'kiwi', 'raisin', 'fraise', 'fruit'])) return { category: 'fruit', isWhole: true };
-  if (_contains(text, ['brocoli', 'carotte', 'tomate', 'concombre', 'salade', 'légume'])) return { category: 'vegetable', isWhole: true };
-  if (_contains(text, ['poulet', 'saumon', 'œuf', 'oeuf', 'tofu', 'skyr'])) return { category: 'protein', isWhole: true };
-  if (_contains(text, ['riz', 'quinoa', 'avoine', 'flocon', 'patate', 'lentille'])) return { category: 'grain_legume', isWhole: true };
-  if (lvl === 'minimal' || lvl === 'low') return { category: 'minimal', isWhole: true };
-  if (lvl === 'ultra' || lvl === 'high') return { category: 'processed', isWhole: false };
-  return { category: 'unknown', isWhole: false };
-}
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_SIZE_BYTES },
+  fileFilter: (req, file, cb) => {
+    const mime = (file.mimetype || '').toLowerCase();
+    if (ALLOWED_MIME_TYPES.includes(mime)) {
+      cb(null, true);
+    } else {
+      cb(null, false);
+    }
+  },
+});
 
-function computeHealthScore(foodAnalysis) {
-  const f = foodAnalysis || {};
-  const { category, isWhole } = _wholeCategory(f);
-  const lvl = (f.processingLevel || '').toLowerCase();
-  const cal = Number(f.estimatedCalories) || 0;
-  const proteinG = Number(f.proteinG) || 0;
-  const carbsG = Number(f.carbsG) || 0;
-  const fatG = Number(f.fatG) || 0;
-  const fiberG = Number(f.estimatedFiberG) || 0;
-  const addedS = Number(f.addedSugarEstimate) || 0;
-
-  let score = 5;
-  if (lvl === 'minimal') score += 1.5; else if (lvl === 'low') score += 1.2; else if (lvl === 'ultra' || lvl === 'high') score -= 2;
-  if (category === 'fruit' || category === 'vegetable') score += 2.5; else if (category === 'protein' || category === 'grain_legume' || category === 'healthy_fat') score += 1.5; else if (isWhole) score += 1;
-  score += Math.min(0.8, fiberG / 10);
-  score -= Math.min(1.2, addedS / 25);
-
-  score = Math.max(0, Math.min(10, score));
-  const display = Math.round(score * 10) / 10;
-  const displayInt = Math.max(0, Math.min(10, Math.round(score)));
-
-  const reasons = [];
-  if (category === 'fruit') { reasons.push('Fruit entier peu transformé'); reasons.push('Sucre naturellement présent, non ajouté'); if (fiberG > 2) reasons.push('Bonne présence de fibres'); }
-  else if (category === 'vegetable') { reasons.push('Légume brut peu transformé'); if (fiberG > 1) reasons.push('Apport en fibres'); }
-  else if (category === 'protein') { reasons.push('Source de protéines de qualité'); if (proteinG >= 15) reasons.push('Riche en protéines'); }
-  else if (category === 'healthy_fat') { reasons.push('Lipides de bonne qualité'); }
-  else if (category === 'ultra_processed' || lvl === 'ultra') { reasons.push('Produit très transformé'); if (addedS > 10) reasons.push('Sucres ajoutés probables'); }
-  if (reasons.length === 0) reasons.push('Estimation basée sur l\'analyse du plat');
-
-  return { healthScore: display, healthScoreDisplay: displayInt, healthScoreReasoning: reasons.slice(0, 5) };
-}
-
-/**
- * Arrondit une valeur numérique de manière sûre.
- * @param {number} value - Valeur à arrondir
- * @param {number} decimals - Nombre de décimales
- * @returns {number}
- */
-function safeRound(value, decimals = 0) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return 0;
+function handleMulterError(err, req, res, next) {
+  if (err) {
+    return sendNutritionScanError(res, 400, 'invalid_image', 'Image manquante ou format non supporté.');
   }
-  const n = Number(value);
-  const factor = 10 ** decimals;
-  return Math.round(n * factor) / factor;
+  next();
 }
 
 /**
- * Clamp une valeur entre min et max.
- * @param {number} value - Valeur
- * @param {number} min - Minimum
- * @param {number} max - Maximum
- * @returns {number}
+ * POST /nutrition/scan
+ * Body: multipart/form-data
+ *   - image (optionnel) : fichier image (plat ou étiquette)
+ *   - barcode (optionnel) : string (ex. 3017620422003)
+ *   - type (optionnel) : "food" | "label" — si image envoyée, type d'analyse (défaut: "food")
+ * Au moins un de image ou barcode doit être présent.
+ * Réponse: { success, name, calories, protein, carbs, fats } pour le journal.
  */
-function clampNumber(value, min, max) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return min;
-  }
-  const n = Number(value);
-  return Math.max(min, Math.min(max, n));
-}
+router.post('/scan', (req, res, next) => {
+  upload.single('image')(req, res, (err) => {
+    if (err) {
+      handleMulterError(err, req, res, next);
+      return;
+    }
+    next();
+  });
+}, async (req, res) => {
+  const hasImage = req.file && req.file.buffer;
+  const barcode = typeof req.body?.barcode === 'string' ? req.body.barcode.trim() : '';
+  const hasBarcode = barcode.length > 0;
+  const scanType = (req.body?.type === 'label') ? 'label' : 'food';
 
-/**
- * Parse une valeur en nombre non négatif, clamp à 0.
- * @param {*} value
- * @returns {number}
- */
-function toNonNegativeNumber(value) {
-  const n = Number(value);
-  if (Number.isNaN(n) || n < 0) return 0;
-  return safeRound(n, 0);
-}
-
-/**
- * Valeur interne précise (autorise décimales).
- * @param {*} value
- * @returns {number}
- */
-function toNonNegativePrecise(value) {
-  const n = Number(value);
-  if (Number.isNaN(n) || n < 0) return 0;
-  return safeRound(n, 2);
-}
-
-/**
- * Parse une valeur en confiance (0 à 1).
- * @param {*} value
- * @returns {number}
- */
-function toConfidence(value) {
-  return clampNumber(value, 0, 1);
-}
-
-/**
- * Arrondi "affichage" pour les macros : < 0.5 → 0, sinon entier le plus proche.
- * @param {number} value
- * @returns {number}
- */
-function toDisplayMacro(value) {
-  const n = Number(value);
-  if (Number.isNaN(n) || n < 0) return 0;
-  if (n < 0.5) return 0;
-  return Math.round(n);
-}
-
-/**
- * Normalise un item (aliment) du scan food.
- * @param {object} item - Item brut
- * @returns {object|null} - { name, grams } ou null si invalide
- */
-function normalizeFoodItem(item) {
-  if (!item || typeof item !== 'object') return null;
-  const name = typeof item.name === 'string' && item.name.trim()
-    ? item.name.trim()
-    : null;
-  if (!name) return null;
-  const grams = toNonNegativeNumber(item.grams);
-  return { name, grams };
-}
-
-const VALID_FOOD_TYPES = ['single_food', 'multi_ingredient_meal', 'packaged_product'];
-const VALID_PROCESSING_LEVELS = ['minimal', 'low', 'moderate', 'high', 'ultra'];
-
-function normalizeFoodType(value) {
-  const v = (value || '').toString().toLowerCase().trim();
-  return VALID_FOOD_TYPES.includes(v) ? v : 'single_food';
-}
-
-function normalizeProcessingLevel(value) {
-  const v = (value || '').toString().toLowerCase().trim();
-  return VALID_PROCESSING_LEVELS.includes(v) ? v : 'moderate';
-}
-
-/**
- * Normalise le résultat brut du scan food (réponse OpenAI).
- * - Valeurs internes précises (proteinG, carbsG, fatG avec décimales).
- * - Valeurs d'affichage (displayProteinG, displayCarbsG, displayFatG).
- * - Score santé et reasoning.
- * @param {object} raw - Réponse brute (après parse JSON)
- * @returns {object} - Objet normalisé pour l'API
- */
-function normalizeFoodScanResult(raw) {
-  const empty = {
-    dishName: '',
-    name: '',
-    foodType: 'single_food',
-    estimatedCalories: 0,
-    proteinG: 0,
-    carbsG: 0,
-    fatG: 0,
-    displayProteinG: 0,
-    displayCarbsG: 0,
-    displayFatG: 0,
-    estimatedFiberG: 0,
-    naturalSugarEstimate: 0,
-    addedSugarEstimate: 0,
-    processingLevel: 'moderate',
-    confidence: 0,
-    items: [],
-    notes: [],
-    healthScore: 5,
-    healthScoreDisplay: 5,
-    healthScoreReasoning: [],
-  };
-
-  if (!raw || typeof raw !== 'object') {
-    return empty;
+  if (!hasImage && !hasBarcode) {
+    return sendNutritionScanError(res, 400, 'missing_input', 'Envoyez une image et/ou un code-barres.');
   }
 
-  const items = Array.isArray(raw.items)
-    ? raw.items.map(normalizeFoodItem).filter(Boolean)
-    : [];
+  try {
+    // Priorité image si présente
+    if (hasImage) {
+      const prepared = prepareImageForOpenAI(req.file);
+      if (!prepared.valid) {
+        return sendNutritionScanError(res, 400, 'invalid_image', 'Image invalide ou trop volumineuse.');
+      }
+      if (!getClient()) {
+        return sendNutritionScanError(res, 503, 'missing_api_key', 'Service temporairement indisponible.');
+      }
 
-  const notes = Array.isArray(raw.notes)
-    ? raw.notes.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim())
-    : [];
+      if (scanType === 'label') {
+        const result = await analyzeNutritionLabelImage(prepared.dataUrl);
+        if (!result.ok) {
+          return sendNutritionScanError(res, 502, result.error, 'Lecture de l\'étiquette impossible. Réessayez.');
+        }
+        const normalized = normalizeLabelScanResult(result.data);
+        const journal = toJournalFormat(normalized, 'scan_label');
+        return sendNutritionScanSuccess(res, journal);
+      }
 
-  const dishName = typeof raw.dishName === 'string' && raw.dishName.trim()
-    ? raw.dishName.trim()
-    : '';
+      const result = await analyzeFoodImage(prepared.dataUrl);
+      if (!result.ok) {
+        return sendNutritionScanError(res, 502, result.error, 'Analyse du plat impossible. Réessayez.');
+      }
+      const normalized = normalizeFoodScanResult(result.data);
+      const journal = toJournalFormat(normalized, 'scan_food');
+      return sendNutritionScanSuccess(res, journal);
+    }
 
-  const proteinG = toNonNegativePrecise(raw.proteinG);
-  const carbsG = toNonNegativePrecise(raw.carbsG);
-  const fatG = toNonNegativePrecise(raw.fatG);
-
-  const normalized = {
-    dishName,
-    name: dishName,
-    foodType: normalizeFoodType(raw.foodType),
-    estimatedCalories: toNonNegativeNumber(raw.estimatedCalories),
-    proteinG,
-    carbsG,
-    fatG,
-    displayProteinG: toDisplayMacro(proteinG),
-    displayCarbsG: toDisplayMacro(carbsG),
-    displayFatG: toDisplayMacro(fatG),
-    estimatedFiberG: toNonNegativePrecise(raw.estimatedFiberG),
-    naturalSugarEstimate: toNonNegativePrecise(raw.naturalSugarEstimate),
-    addedSugarEstimate: toNonNegativePrecise(raw.addedSugarEstimate),
-    processingLevel: normalizeProcessingLevel(raw.processingLevel),
-    confidence: safeRound(toConfidence(raw.confidence), 2),
-    items,
-    notes,
-  };
-
-  const { healthScore, healthScoreDisplay, healthScoreReasoning } = computeHealthScore(normalized);
-  normalized.healthScore = healthScore;
-  normalized.healthScoreDisplay = healthScoreDisplay;
-  normalized.healthScoreReasoning = Array.isArray(healthScoreReasoning) ? healthScoreReasoning : [];
-
-  return normalized;
-}
+    // Barcode seul : recherche Open Food Facts
+    const result = await lookupBarcode(barcode);
+    if (!result.ok) {
+      const message = result.error === 'invalid_barcode'
+        ? 'Code-barres invalide.'
+        : result.error === 'timeout'
+          ? 'Recherche expirée. Réessayez.'
+          : 'Produit non trouvé. Vous pouvez l\'ajouter au journal sans macros.';
+      return res.status(result.error === 'invalid_barcode' ? 400 : 404).json({
+        success: false,
+        error: result.error,
+        message,
+        name: '',
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fats: 0,
+      });
+    }
+    return sendNutritionScanSuccess(res, result.data);
+  } catch (err) {
+    console.error('[nutrition] scan error:', err?.message ?? err);
+    sendNutritionScanError(res, 500, 'internal_error', 'Une erreur est survenue. Réessayez.');
+  }
+});
 
 /**
- * Normalise le résultat brut du scan label (étiquette nutritionnelle).
- * @param {object} raw - Réponse brute
- * @returns {object}
+ * POST /nutrition/scan/barcode
+ * Endpoint utilisé par l’app iOS (NutritionScanAPI.swift). Corps : { "barcode": "..." } uniquement.
+ * Réponse 200 : { success, name, calories, protein, carbs, fats, servingSize?, image_url?, imageUrl?, image_front_url? }
+ *   — image_url / imageUrl / image_front_url : URL de l’image produit (Open Food Facts) si disponible ; l’app affiche l’image via resolvedImageUrl = image_url ?? imageUrl ?? image_front_url.
+ * Réponse 400/404 : code-barres invalide ou produit non trouvé. L’app (NutritionScanAPI) peut en 404 faire un fallback vers Open Food Facts direct.
  */
-function normalizeLabelScanResult(raw) {
-  if (!raw || typeof raw !== 'object') {
-    return {
-      productName: null,
-      servingSize: null,
+router.post('/scan/barcode', async (req, res) => {
+  try {
+    const barcode = typeof req.body?.barcode === 'string' ? req.body.barcode.trim() : '';
+    if (!barcode) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_barcode',
+        message: 'Code-barres manquant.',
+        name: '',
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fats: 0,
+      });
+    }
+
+    const result = await lookupBarcode(barcode);
+    if (!result.ok) {
+      const errorCode = result.error === 'invalid_barcode' ? 'invalid_barcode' : 'not_found';
+      const status = result.error === 'invalid_barcode' ? 400 : 404;
+      return res.status(status).json({
+        success: false,
+        error: errorCode,
+        name: '',
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fats: 0,
+      });
+    }
+
+    return sendNutritionScanSuccess(res, result.data);
+  } catch (err) {
+    console.error('[nutrition] scan/barcode error:', err?.message ?? err);
+    res.status(500).json({
+      success: false,
+      error: 'internal_error',
+      name: '',
       calories: 0,
-      proteinG: 0,
-      carbsG: 0,
-      fatG: 0,
-      confidence: 0,
-    };
+      protein: 0,
+      carbs: 0,
+      fats: 0,
+    });
   }
+});
 
-  return {
-    productName: typeof raw.productName === 'string' && raw.productName.trim()
-      ? raw.productName.trim()
-      : null,
-    servingSize: typeof raw.servingSize === 'string' && raw.servingSize.trim()
-      ? raw.servingSize.trim()
-      : null,
-    calories: toNonNegativeNumber(raw.calories),
-    proteinG: toNonNegativeNumber(raw.proteinG),
-    carbsG: toNonNegativeNumber(raw.carbsG),
-    fatG: toNonNegativeNumber(raw.fatG),
-    confidence: toConfidence(raw.confidence),
-  };
-}
-
-module.exports = {
-  safeRound,
-  clampNumber,
-  toNonNegativeNumber,
-  toConfidence,
-  normalizeFoodItem,
-  normalizeFoodScanResult,
-  normalizeLabelScanResult,
-};
+module.exports = router;
