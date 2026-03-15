@@ -9,7 +9,8 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
-// Ne pas précharger nutrition pour éviter tout crash au démarrage ; chargement à la demande dans les routes
+// Précharger nutrition pour que le cache Node contienne le module complet (évite nutrition: false sur /ai/ready)
+require('./services/nutrition');
 const aiRoutes = require('./routes/ai');
 const nutritionRoutes = require('./routes/nutrition');
 const { sendError } = require('./utils/errors');
