@@ -1,35 +1,69 @@
 /**
  * Normalisation des réponses nutritionnelles renvoyées par OpenAI.
  * Valeurs internes précises vs valeurs d'affichage arrondies.
- * Intégration du score santé (healthScore, healthScoreReasoning).
+ * Score santé intégré (aucune dépendance à healthScore.js pour le démarrage).
  */
 
-const path = require('path');
+// --- Score santé (logique inline pour éviter MODULE_NOT_FOUND en conteneur) ---
+const FRUITS = ['pomme', 'banane', 'orange', 'poire', 'kiwi', 'raisin', 'fraise', 'brocoli', 'concombre', 'carotte', 'tomate', 'salade', 'avocat', 'noix', 'amande', 'poulet', 'dinde', 'œuf', 'oeuf', 'saumon', 'riz', 'quinoa', 'avoine', 'flocon'];
+const ULTRA = ['biscuit', 'gâteau', 'viennoiserie', 'soda', 'chips', 'burger', 'pizza', 'barre chocolat', 'bonbon', 'donut'];
 
-function defaultHealthScore() {
-  return {
-    healthScore: 5,
-    healthScoreDisplay: 5,
-    healthScoreReasoning: ['Score non calculé (module healthScore absent).'],
-  };
+function _norm(s) {
+  if (!s || typeof s !== 'string') return '';
+  return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
 }
 
-let computeHealthScore = defaultHealthScore;
+function _contains(text, keywords) {
+  const n = _norm(text);
+  return keywords.some((k) => n.includes(_norm(k)));
+}
 
-try {
-  const healthScorePath = path.join(__dirname, 'healthScore.js');
-  const healthScoreModule = require(healthScorePath);
-  if (typeof healthScoreModule.computeHealthScore === 'function') {
-    computeHealthScore = healthScoreModule.computeHealthScore;
-  } else {
-    console.warn('[nutrition] healthScore.computeHealthScore non disponible, utilisation des valeurs par défaut.');
-  }
-} catch (err) {
-  if (err && err.code === 'MODULE_NOT_FOUND') {
-    console.warn('[nutrition] healthScore.js introuvable, score santé par défaut. Vérifiez que services/healthScore.js est bien déployé.');
-  } else {
-    console.warn('[nutrition] healthScore non chargé:', err?.message || err, '- score santé par défaut.');
-  }
+function _wholeCategory(f) {
+  const name = (f.dishName || f.name || '').trim();
+  const lvl = (f.processingLevel || '').toLowerCase();
+  const items = Array.isArray(f.items) ? f.items : [];
+  const text = `${name} ${items.map((i) => (i && i.name) || '').join(' ')}`.trim();
+  if (_contains(text, ULTRA) && lvl.includes('ultra')) return { category: 'ultra_processed', isWhole: false };
+  if (_contains(text, ['avocat', 'noix', 'amande'])) return { category: 'healthy_fat', isWhole: true };
+  if (_contains(text, ['pomme', 'banane', 'orange', 'poire', 'kiwi', 'raisin', 'fraise', 'fruit'])) return { category: 'fruit', isWhole: true };
+  if (_contains(text, ['brocoli', 'carotte', 'tomate', 'concombre', 'salade', 'légume'])) return { category: 'vegetable', isWhole: true };
+  if (_contains(text, ['poulet', 'saumon', 'œuf', 'oeuf', 'tofu', 'skyr'])) return { category: 'protein', isWhole: true };
+  if (_contains(text, ['riz', 'quinoa', 'avoine', 'flocon', 'patate', 'lentille'])) return { category: 'grain_legume', isWhole: true };
+  if (lvl === 'minimal' || lvl === 'low') return { category: 'minimal', isWhole: true };
+  if (lvl === 'ultra' || lvl === 'high') return { category: 'processed', isWhole: false };
+  return { category: 'unknown', isWhole: false };
+}
+
+function computeHealthScore(foodAnalysis) {
+  const f = foodAnalysis || {};
+  const { category, isWhole } = _wholeCategory(f);
+  const lvl = (f.processingLevel || '').toLowerCase();
+  const cal = Number(f.estimatedCalories) || 0;
+  const proteinG = Number(f.proteinG) || 0;
+  const carbsG = Number(f.carbsG) || 0;
+  const fatG = Number(f.fatG) || 0;
+  const fiberG = Number(f.estimatedFiberG) || 0;
+  const addedS = Number(f.addedSugarEstimate) || 0;
+
+  let score = 5;
+  if (lvl === 'minimal') score += 1.5; else if (lvl === 'low') score += 1.2; else if (lvl === 'ultra' || lvl === 'high') score -= 2;
+  if (category === 'fruit' || category === 'vegetable') score += 2.5; else if (category === 'protein' || category === 'grain_legume' || category === 'healthy_fat') score += 1.5; else if (isWhole) score += 1;
+  score += Math.min(0.8, fiberG / 10);
+  score -= Math.min(1.2, addedS / 25);
+
+  score = Math.max(0, Math.min(10, score));
+  const display = Math.round(score * 10) / 10;
+  const displayInt = Math.max(0, Math.min(10, Math.round(score)));
+
+  const reasons = [];
+  if (category === 'fruit') { reasons.push('Fruit entier peu transformé'); reasons.push('Sucre naturellement présent, non ajouté'); if (fiberG > 2) reasons.push('Bonne présence de fibres'); }
+  else if (category === 'vegetable') { reasons.push('Légume brut peu transformé'); if (fiberG > 1) reasons.push('Apport en fibres'); }
+  else if (category === 'protein') { reasons.push('Source de protéines de qualité'); if (proteinG >= 15) reasons.push('Riche en protéines'); }
+  else if (category === 'healthy_fat') { reasons.push('Lipides de bonne qualité'); }
+  else if (category === 'ultra_processed' || lvl === 'ultra') { reasons.push('Produit très transformé'); if (addedS > 10) reasons.push('Sucres ajoutés probables'); }
+  if (reasons.length === 0) reasons.push('Estimation basée sur l\'analyse du plat');
+
+  return { healthScore: display, healthScoreDisplay: displayInt, healthScoreReasoning: reasons.slice(0, 5) };
 }
 
 /**
