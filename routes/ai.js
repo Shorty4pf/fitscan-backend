@@ -9,8 +9,11 @@ const { sendError } = require('../utils/errors');
 const { sendScanFoodSuccess, sendScanLabelSuccess } = require('../utils/response');
 const { prepareImageForOpenAI } = require('../utils/image');
 const { analyzeFoodImage, analyzeNutritionLabelImage, getClient } = require('../services/openai');
-const { normalizeFoodScanResult, normalizeLabelScanResult } = require('../services/nutrition');
 const { lookupBarcode } = require('../services/barcode');
+
+function getNutrition() {
+  return require('../services/nutrition');
+}
 
 const router = express.Router();
 
@@ -78,6 +81,7 @@ router.post('/scan-food', (req, res, next) => {
       return sendError(res, status, result.error ?? 'ai_failed');
     }
 
+    const { normalizeFoodScanResult } = getNutrition();
     const normalized = normalizeFoodScanResult(result.data);
     sendScanFoodSuccess(res, normalized);
   } catch (err) {
@@ -116,6 +120,7 @@ router.post('/scan-label', (req, res, next) => {
       return sendError(res, 502, result.error);
     }
 
+    const { normalizeLabelScanResult } = getNutrition();
     const normalized = normalizeLabelScanResult(result.data);
     sendScanLabelSuccess(res, normalized);
   } catch (err) {
