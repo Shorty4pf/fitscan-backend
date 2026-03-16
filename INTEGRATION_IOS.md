@@ -86,6 +86,10 @@ struct FoodScanResponse: Codable {
     let items: [DetectedFoodItem]?
     let notes: [String]?
     let error: String?
+    // Score santé (affichage) : utiliser cette valeur, ne pas recalculer depuis les macros
+    let healthScore: Double?
+    let healthScoreDisplay: Int?       // ex. 9 → afficher "9/10"
+    let healthScoreReasoning: [String]?
 }
 
 struct DetectedFoodItem: Codable {
