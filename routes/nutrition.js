@@ -4,7 +4,7 @@
  * Score santé intégré (aucune dépendance à healthScore.js pour le démarrage).
  */
 
-const { sanitizeDishDescription } = require('../utils/response');
+const { sanitizeDishDescription } = require('../utils/sanitizeDishDescription');
 
 // --- Score santé (logique inline pour éviter MODULE_NOT_FOUND en conteneur) ---
 const FRUITS = ['pomme', 'banane', 'orange', 'poire', 'kiwi', 'raisin', 'fraise', 'brocoli', 'concombre', 'carotte', 'tomate', 'salade', 'avocat', 'noix', 'amande', 'poulet', 'dinde', 'œuf', 'oeuf', 'saumon', 'riz', 'quinoa', 'avoine', 'flocon'];
