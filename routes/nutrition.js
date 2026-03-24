@@ -183,8 +183,4 @@ router.post('/scan/barcode', async (req, res) => {
   }
 });
 
-// Middleware explicite : garantit typeof === 'function' pour app.use (Express 5).
-function nutritionRouter(req, res, next) {
-  return router(req, res, next);
-}
-module.exports = nutritionRouter;
+module.exports = router;
