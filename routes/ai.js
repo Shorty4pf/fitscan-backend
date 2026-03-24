@@ -7,14 +7,19 @@
 const express = require('express');
 const multer = require('multer');
 const { sendError } = require('../utils/errors');
-const { sendScanFoodSuccess, sendScanLabelSuccess } = require('../utils/response');
+const { sendScanFoodSuccess, sendScanLabelSuccess, sanitizeDishDescription } = require('../utils/response');
 const { prepareImageForOpenAI } = require('../utils/image');
-const { analyzeFoodImage, analyzeNutritionLabelImage, getClient } = require('../services/openai');
+const { analyzeFoodImage, analyzeNutritionLabelImage, fixFoodScanResult, getClient } = require('../services/openai');
 const { lookupBarcode } = require('../services/barcode');
 
 // --- Normalisation scan-food inline (indépendante du module nutrition pour fiabilité déploiement) ---
-const FRUITS = ['pomme', 'banane', 'orange', 'poire', 'kiwi', 'raisin', 'fraise', 'brocoli', 'concombre', 'carotte', 'tomate', 'salade', 'avocat', 'noix', 'amande', 'poulet', 'dinde', 'œuf', 'oeuf', 'saumon', 'riz', 'quinoa', 'avoine', 'flocon'];
-const ULTRA = ['biscuit', 'gâteau', 'viennoiserie', 'soda', 'chips', 'burger', 'pizza', 'barre chocolat', 'bonbon', 'donut'];
+// Fruits uniquement (pas de légumes ici pour éviter mauvaise catégorisation)
+const FRUIT_KEYWORDS = ['pomme', 'banane', 'orange', 'poire', 'kiwi', 'raisin', 'fraise', 'framboise', 'cerise', 'mangue', 'ananas', 'citron', 'fruit', 'fruits'];
+const VEGETABLE_KEYWORDS = ['brocoli', 'carotte', 'tomate', 'concombre', 'salade', 'légume', 'légumes', 'épinard', 'courgette', 'poivron', 'aubergine', 'chou', 'haricot vert'];
+const HEALTHY_FAT_KEYWORDS = ['avocat', 'noix', 'amande', 'noisette'];
+const PROTEIN_KEYWORDS = ['poulet', 'dinde', 'œuf', 'oeuf', 'saumon', 'thon', 'tofu', 'skyr', 'yaourt nature', 'yogourt'];
+const GRAIN_KEYWORDS = ['riz', 'quinoa', 'avoine', 'flocon', 'patate', 'lentille', 'pois chiche', 'flocons'];
+const ULTRA_KEYWORDS = ['biscuit', 'gâteau', 'viennoiserie', 'soda', 'chips', 'burger', 'pizza', 'barre chocolat', 'bonbon', 'donut', 'nutella', 'céréale sucrée'];
 const FOOD_TYPES = ['single_food', 'multi_ingredient_meal', 'packaged_product'];
 const PROCESSING = ['minimal', 'low', 'moderate', 'high', 'ultra'];
 
@@ -31,12 +36,12 @@ function _wholeCategory(f) {
   const lvl = (f.processingLevel || '').toLowerCase();
   const items = Array.isArray(f.items) ? f.items : [];
   const text = `${name} ${items.map((i) => (i && i.name) || '').join(' ')}`.trim();
-  if (_contains(text, ULTRA) && lvl.includes('ultra')) return { category: 'ultra_processed', isWhole: false };
-  if (_contains(text, ['avocat', 'noix', 'amande'])) return { category: 'healthy_fat', isWhole: true };
-  if (_contains(text, ['pomme', 'banane', 'orange', 'poire', 'kiwi', 'raisin', 'fraise', 'fruit'])) return { category: 'fruit', isWhole: true };
-  if (_contains(text, ['brocoli', 'carotte', 'tomate', 'concombre', 'salade', 'légume'])) return { category: 'vegetable', isWhole: true };
-  if (_contains(text, ['poulet', 'saumon', 'œuf', 'oeuf', 'tofu', 'skyr'])) return { category: 'protein', isWhole: true };
-  if (_contains(text, ['riz', 'quinoa', 'avoine', 'flocon', 'patate', 'lentille'])) return { category: 'grain_legume', isWhole: true };
+  if (_contains(text, ULTRA_KEYWORDS) && (lvl.includes('ultra') || lvl.includes('high'))) return { category: 'ultra_processed', isWhole: false };
+  if (_contains(text, HEALTHY_FAT_KEYWORDS)) return { category: 'healthy_fat', isWhole: true };
+  if (_contains(text, FRUIT_KEYWORDS)) return { category: 'fruit', isWhole: true };
+  if (_contains(text, VEGETABLE_KEYWORDS)) return { category: 'vegetable', isWhole: true };
+  if (_contains(text, PROTEIN_KEYWORDS)) return { category: 'protein', isWhole: true };
+  if (_contains(text, GRAIN_KEYWORDS)) return { category: 'grain_legume', isWhole: true };
   if (lvl === 'minimal' || lvl === 'low') return { category: 'minimal', isWhole: true };
   if (lvl === 'ultra' || lvl === 'high') return { category: 'processed', isWhole: false };
   return { category: 'unknown', isWhole: false };
@@ -52,6 +57,7 @@ function _toConf(v) { const n = Number(v); return Number.isNaN(n) ? 0 : Math.max
 function _toDisp(v) { const n = Number(v); if (Number.isNaN(n) || n < 0) return 0; return n < 0.5 ? 0 : Math.round(n); }
 function _foodType(v) { const t = (v || '').toString().toLowerCase().trim(); return FOOD_TYPES.includes(t) ? t : 'single_food'; }
 function _procLvl(v) { const t = (v || '').toString().toLowerCase().trim(); return PROCESSING.includes(t) ? t : 'moderate'; }
+
 function _healthScore(f) {
   const { category, isWhole } = _wholeCategory(f);
   const lvl = (f.processingLevel || '').toLowerCase();
@@ -64,6 +70,9 @@ function _healthScore(f) {
   score += Math.min(0.8, fiberG / 10);
   score -= Math.min(1.2, addedS / 25);
   score = Math.max(0, Math.min(10, score));
+  if (category === 'fruit' || category === 'vegetable') score = Math.max(score, 6);
+  if (category === 'healthy_fat') score = Math.max(score, 5.5);
+  const displayInt = Math.max(0, Math.min(10, Math.round(score)));
   const reasons = [];
   if (category === 'fruit') { reasons.push('Fruit entier peu transformé'); reasons.push('Sucre naturellement présent'); if (fiberG > 2) reasons.push('Bonne présence de fibres'); }
   else if (category === 'vegetable') { reasons.push('Légume brut peu transformé'); if (fiberG > 1) reasons.push('Apport en fibres'); }
@@ -71,26 +80,30 @@ function _healthScore(f) {
   else if (category === 'healthy_fat') reasons.push('Lipides de bonne qualité');
   else if (category === 'ultra_processed' || lvl === 'ultra') { reasons.push('Produit très transformé'); if (addedS > 10) reasons.push('Sucres ajoutés probables'); }
   if (reasons.length === 0) reasons.push('Estimation basée sur l\'analyse du plat');
-  return { healthScore: _safeRound(score, 1), healthScoreDisplay: Math.max(0, Math.min(10, Math.round(score))), healthScoreReasoning: reasons.slice(0, 5) };
+  return { healthScore: _safeRound(score, 1), healthScoreDisplay: displayInt, healthScoreReasoning: reasons.slice(0, 5) };
 }
 function normalizeFoodScanResultInline(raw) {
-  const empty = { dishName: '', name: '', foodType: 'single_food', estimatedCalories: 0, proteinG: 0, carbsG: 0, fatG: 0, displayProteinG: 0, displayCarbsG: 0, displayFatG: 0, estimatedFiberG: 0, naturalSugarEstimate: 0, addedSugarEstimate: 0, processingLevel: 'moderate', confidence: 0, items: [], notes: [], healthScore: 5, healthScoreDisplay: 5, healthScoreReasoning: [] };
+  const empty = { dishName: '', name: '', dishDescription: '', foodType: 'single_food', estimatedCalories: 0, proteinG: 0, carbsG: 0, fatG: 0, displayProteinG: 0, displayCarbsG: 0, displayFatG: 0, estimatedFiberG: 0, naturalSugarEstimate: 0, addedSugarEstimate: 0, processingLevel: 'moderate', confidence: 0, items: [], notes: [], healthScore: 5, healthScoreDisplay: 5, healthScoreReasoning: [] };
   if (!raw || typeof raw !== 'object') return empty;
   try {
     const items = Array.isArray(raw.items) ? raw.items.filter((i) => i && i.name).map((i) => ({ name: String(i.name).trim(), grams: _toNum(i.grams) })) : [];
     const notes = Array.isArray(raw.notes) ? raw.notes.filter((n) => typeof n === 'string' && n.trim()).map((s) => s.trim()) : [];
     const dishName = (raw.dishName && String(raw.dishName).trim()) || '';
+    const dishDescription = sanitizeDishDescription(raw, dishName, items);
     const proteinG = _toPrecise(raw.proteinG);
     const carbsG = _toPrecise(raw.carbsG);
     const fatG = _toPrecise(raw.fatG);
-    const normalized = { dishName, name: dishName, foodType: _foodType(raw.foodType), estimatedCalories: _toNum(raw.estimatedCalories), proteinG, carbsG, fatG, displayProteinG: _toDisp(proteinG), displayCarbsG: _toDisp(carbsG), displayFatG: _toDisp(fatG), estimatedFiberG: _toPrecise(raw.estimatedFiberG), naturalSugarEstimate: _toPrecise(raw.naturalSugarEstimate), addedSugarEstimate: _toPrecise(raw.addedSugarEstimate), processingLevel: _procLvl(raw.processingLevel), confidence: _safeRound(_toConf(raw.confidence), 2), items, notes };
+    const normalized = { dishName, name: dishName, dishDescription, foodType: _foodType(raw.foodType), estimatedCalories: _toNum(raw.estimatedCalories), proteinG, carbsG, fatG, displayProteinG: _toDisp(proteinG), displayCarbsG: _toDisp(carbsG), displayFatG: _toDisp(fatG), estimatedFiberG: _toPrecise(raw.estimatedFiberG), naturalSugarEstimate: _toPrecise(raw.naturalSugarEstimate), addedSugarEstimate: _toPrecise(raw.addedSugarEstimate), processingLevel: _procLvl(raw.processingLevel), confidence: _safeRound(_toConf(raw.confidence), 2), items, notes };
     const h = _healthScore(normalized);
     normalized.healthScore = h.healthScore;
     normalized.healthScoreDisplay = h.healthScoreDisplay;
     normalized.healthScoreReasoning = h.healthScoreReasoning || [];
+    const { category, isWhole } = _wholeCategory(normalized);
+    console.log('[health-score]', JSON.stringify({ dishName: normalized.dishName, category, isWhole, processingLevel: normalized.processingLevel, healthScore: normalized.healthScore, healthScoreDisplay: normalized.healthScoreDisplay, reasons: normalized.healthScoreReasoning?.length }));
     return normalized;
   } catch (e) {
-    return { ...empty, dishName: (raw.dishName && String(raw.dishName).trim()) || '', name: (raw.dishName && String(raw.dishName).trim()) || '', estimatedCalories: _toNum(raw.estimatedCalories), proteinG: _toPrecise(raw.proteinG), carbsG: _toPrecise(raw.carbsG), fatG: _toPrecise(raw.fatG), displayProteinG: _toDisp(raw.proteinG), displayCarbsG: _toDisp(raw.carbsG), displayFatG: _toDisp(raw.fatG), confidence: _safeRound(_toConf(raw.confidence), 2), items: [], notes: [] };
+    const dn = (raw.dishName && String(raw.dishName).trim()) || '';
+    return { ...empty, dishName: dn, name: dn, dishDescription: sanitizeDishDescription(raw, dn, []), estimatedCalories: _toNum(raw.estimatedCalories), proteinG: _toPrecise(raw.proteinG), carbsG: _toPrecise(raw.carbsG), fatG: _toPrecise(raw.fatG), displayProteinG: _toDisp(raw.proteinG), displayCarbsG: _toDisp(raw.carbsG), displayFatG: _toDisp(raw.fatG), confidence: _safeRound(_toConf(raw.confidence), 2), items: [], notes: [] };
   }
 }
 
@@ -194,6 +207,40 @@ router.post('/scan-food', (req, res, next) => {
 });
 
 /**
+ * POST /ai/fix-scan-food
+ * Body: JSON { currentResult: { ... }, instruction?: string }
+ * Réutilise le même format de réponse que scan-food (dont dishDescription).
+ */
+router.post('/fix-scan-food', async (req, res) => {
+  try {
+    const currentResult = req.body?.currentResult;
+    if (!currentResult || typeof currentResult !== 'object' || Array.isArray(currentResult)) {
+      return sendError(res, 400, 'invalid_body');
+    }
+
+    if (!getClient()) {
+      console.error('[ai] OPENAI_API_KEY manquante');
+      return sendError(res, 503, 'missing_api_key');
+    }
+
+    const instruction = typeof req.body?.instruction === 'string' ? req.body.instruction.trim() : '';
+    const result = await fixFoodScanResult(currentResult, instruction);
+    if (!result.ok) {
+      const status = result.error === 'missing_api_key' ? 503 : 502;
+      return sendError(res, status, result.error ?? 'ai_failed');
+    }
+
+    const raw = result.data != null ? result.data : {};
+    const normalized = normalizeFoodScanResultInline(raw);
+    sendScanFoodSuccess(res, normalized);
+  } catch (err) {
+    console.error('[ai] fix-scan-food error:', err?.message ?? err);
+    if (err?.stack) console.error('[ai] stack:', err.stack);
+    return sendError(res, 500, 'internal_error');
+  }
+});
+
+/**
  * POST /ai/scan-label
  * Body: multipart/form-data, champ "image"
  */
@@ -274,4 +321,5 @@ router.post('/scan-barcode', async (req, res) => {
   }
 });
 
+router.normalizeFoodScanResultInline = normalizeFoodScanResultInline;
 module.exports = router;
