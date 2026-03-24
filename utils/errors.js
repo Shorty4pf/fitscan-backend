@@ -12,6 +12,7 @@ const ERROR_CODES = {
   missing_api_key: 'Clé API OpenAI non configurée',
   internal_error: 'Erreur interne du serveur',
   not_implemented_yet: 'Fonctionnalité non implémentée',
+  invalid_body: 'Corps de requête JSON invalide ou incomplet',
 };
 
 /**
