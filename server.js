@@ -9,10 +9,10 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
-// Charger les routes avant services/nutrition pour éviter tout module.exports partiel sur routes/nutrition (Express : handler must be a function)
+// Service nutrition global avant routes/nutrition (évite require partiel si une chaîne touche getNutrition au chargement).
 const aiRoutes = require('./routes/ai');
-const nutritionRoutes = require('./routes/nutrition');
 global.__fitscanNutrition = require('./services/nutrition');
+const nutritionRoutes = require('./routes/nutrition');
 const { sendError } = require('./utils/errors');
 
 const app = express();
@@ -44,6 +44,15 @@ app.get('/version', (req, res) => {
     version,
   });
 });
+
+if (typeof aiRoutes !== 'function') {
+  console.error('[server] FATAL: routes/ai doit exporter un middleware (function), reçu:', typeof aiRoutes);
+  process.exit(1);
+}
+if (typeof nutritionRoutes !== 'function') {
+  console.error('[server] FATAL: routes/nutrition doit exporter un middleware (function), reçu:', typeof nutritionRoutes);
+  process.exit(1);
+}
 
 app.use('/ai', aiRoutes);
 app.use('/nutrition', nutritionRoutes);
