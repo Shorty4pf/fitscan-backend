@@ -9,10 +9,10 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
-// Précharger nutrition et l'exposer globalement pour que les routes utilisent la même instance (évite nutrition: false)
-global.__fitscanNutrition = require('./services/nutrition');
+// Charger les routes avant services/nutrition pour éviter tout module.exports partiel sur routes/nutrition (Express : handler must be a function)
 const aiRoutes = require('./routes/ai');
 const nutritionRoutes = require('./routes/nutrition');
+global.__fitscanNutrition = require('./services/nutrition');
 const { sendError } = require('./utils/errors');
 
 const app = express();
