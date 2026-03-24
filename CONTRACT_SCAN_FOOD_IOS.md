@@ -61,6 +61,9 @@ Content-Type: image/jpeg\r\n
   "mode": "scan_food",
   "dishName": "Poulet riz brocolis",
   "name": "Poulet riz brocolis",
+  "dishDescription": "Portion maison avec volaille grillée, riz blanc et brocolis vapeur — repas plutôt équilibré.",
+  "description": "Portion maison avec volaille grillée, riz blanc et brocolis vapeur — repas plutôt équilibré.",
+  "summary": "Portion maison avec volaille grillée, riz blanc et brocolis vapeur — repas plutôt équilibré.",
   "foodType": "multi_ingredient_meal",
   "estimatedCalories": 450,
   "proteinG": 35,
@@ -89,6 +92,9 @@ Content-Type: image/jpeg\r\n
 | `mode` | string | Optionnel | ex. `"scan_food"` |
 | `dishName` | string | Recommandé | Nom du plat |
 | `name` | string | Optionnel | Alias de dishName |
+| `dishDescription` | string | Recommandé | Texte « Aperçu » (1–2 phrases, max ~280 car.) |
+| `description` | string | Optionnel | Même contenu que `dishDescription` (fallback app) |
+| `summary` | string | Optionnel | Même contenu (3ᵉ fallback app) |
 | `foodType` | string | Optionnel | `single_food`, `multi_ingredient_meal`, `packaged_product` |
 | `estimatedCalories` | int | Oui | Calories (kcal) |
 | `proteinG` | number | Oui | Protéines (g), valeur précise |
@@ -137,3 +143,19 @@ L’app affiche un message utilisateur selon le code (pas de stack technique).
 2. **Refuser :** HEIC et autres formats non JPEG/PNG si non supportés.
 3. **Répondre :** JSON structuré avec `success`, `dishName`, `estimatedCalories`, `proteinG`, `carbsG`, `fatG`, etc.
 4. **En cas d’erreur :** JSON avec `success: false` et `error` contenant l’un des codes ci-dessus.
+
+---
+
+## 5. Correction du scan (`POST /ai/fix-scan-food`)
+
+- **URL :** `POST {baseURL}/ai/fix-scan-food`
+- **Content-Type :** `application/json`
+- **Corps :**
+  ```json
+  {
+    "currentResult": { "...": "même structure que la réponse succès scan-food" },
+    "instruction": "Texte optionnel de correction utilisateur"
+  }
+  ```
+- **Réponse succès :** même format JSON que `POST /ai/scan-food` (succès), avec `dishDescription` / `description` / `summary` mis à jour si le plat change.
+- **Erreurs :** `invalid_body` (400) si `currentResult` absent ou invalide ; `missing_api_key` (503) ; `ai_failed` / `invalid_response` (502).
