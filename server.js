@@ -65,6 +65,7 @@ app.listen(PORT, () => {
   console.log(`  GET  /ai/ready (diagnostic nutrition)`);
   console.log(`  GET  /version`);
   console.log(`  POST /ai/scan-food`);
+  console.log(`  POST /ai/fix-scan-food (JSON currentResult + instruction optionnelle)`);
   console.log(`  POST /ai/scan-label`);
   console.log(`  POST /ai/scan-barcode`);
   console.log(`  POST /nutrition/scan (image et/ou barcode → name, calories, protein, carbs, fats)`);
