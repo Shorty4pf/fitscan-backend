@@ -7,7 +7,8 @@
 const express = require('express');
 const multer = require('multer');
 const { sendError } = require('../utils/errors');
-const { sendScanFoodSuccess, sendScanLabelSuccess, sanitizeDishDescription } = require('../utils/response');
+const { sendScanFoodSuccess, sendScanLabelSuccess } = require('../utils/response');
+const { sanitizeDishDescription } = require('../utils/sanitizeDishDescription');
 const { prepareImageForOpenAI } = require('../utils/image');
 const { analyzeFoodImage, analyzeNutritionLabelImage, fixFoodScanResult, getClient } = require('../services/openai');
 const { lookupBarcode } = require('../services/barcode');
