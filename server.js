@@ -45,14 +45,16 @@ app.get('/version', (req, res) => {
   });
 });
 
-if (typeof aiRoutes !== 'function') {
-  console.error('[server] FATAL: routes/ai doit exporter un middleware (function), reçu:', typeof aiRoutes);
-  process.exit(1);
+/** Express : router ou sous-app doit être une fonction ou avoir .handle (app.use). */
+function assertMountable(label, m) {
+  const ok = m != null && (typeof m === 'function' || typeof m.handle === 'function');
+  if (!ok) {
+    console.error('[server] FATAL:', label, 'doit exporter un Router Express (function ou handle), reçu:', m == null ? m : typeof m);
+    process.exit(1);
+  }
 }
-if (typeof nutritionRoutes !== 'function') {
-  console.error('[server] FATAL: routes/nutrition doit exporter un middleware (function), reçu:', typeof nutritionRoutes);
-  process.exit(1);
-}
+assertMountable('routes/ai', aiRoutes);
+assertMountable('routes/nutrition', nutritionRoutes);
 
 app.use('/ai', aiRoutes);
 app.use('/nutrition', nutritionRoutes);
