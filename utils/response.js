@@ -3,6 +3,39 @@
  * Format journal : name, calories, protein, carbs, fats (pour FoodScanBackendResult côté app).
  */
 
+const DISH_DESC_MAX = 280;
+
+/**
+ * Extrait et tronque le texte descriptif pour l’UI « Aperçu » (dishDescription).
+ * @param {object} raw - Réponse brute (dishDescription, description, summary)
+ * @param {string} dishName
+ * @param {Array<{name?: string, grams?: number}>} items - pour repli si pas de texte IA
+ * @returns {string}
+ */
+function sanitizeDishDescription(raw, dishName, items) {
+  let s = '';
+  if (raw && typeof raw.dishDescription === 'string' && raw.dishDescription.trim()) {
+    s = raw.dishDescription.trim();
+  } else if (raw && typeof raw.description === 'string' && raw.description.trim()) {
+    s = raw.description.trim();
+  } else if (raw && typeof raw.summary === 'string' && raw.summary.trim()) {
+    s = raw.summary.trim();
+  }
+  if (s.length > DISH_DESC_MAX) {
+    s = s.slice(0, DISH_DESC_MAX);
+    const lastSpace = s.lastIndexOf(' ');
+    if (lastSpace > DISH_DESC_MAX - 50) s = s.slice(0, lastSpace).trim();
+  }
+  if (!s && dishName && Array.isArray(items) && items.length) {
+    const parts = items.filter((i) => i && i.name).map((i) => {
+      const g = i.grams != null && Number(i.grams) > 0 ? ` ~${Math.round(Number(i.grams))} g` : '';
+      return String(i.name).trim() + g;
+    });
+    if (parts.length) s = parts.slice(0, 4).join(' · ');
+  }
+  return s;
+}
+
 /**
  * Construit l'objet journal attendu par l'app (name, calories, protein, carbs, fats).
  * @param {object} data - Données normalisées (food ou label)
@@ -39,11 +72,15 @@ function sendScanFoodSuccess(res, data) {
     name: (i && i.name != null) ? String(i.name) : '',
     grams: toInt(i && i.grams),
   })).filter((i) => i.name !== '');
+  const desc = typeof data.dishDescription === 'string' ? data.dishDescription.trim() : '';
   const body = {
     success: true,
     mode: 'scan_food',
     dishName: data.dishName ?? '',
     name: data.name ?? data.dishName ?? '',
+    dishDescription: desc,
+    description: desc,
+    summary: desc,
     foodType: data.foodType ?? 'single_food',
     estimatedCalories: toInt(data.estimatedCalories),
     proteinG: toInt(data.displayProteinG ?? data.proteinG),
@@ -123,6 +160,7 @@ function sendNutritionScanError(res, status, errorCode, message) {
 
 module.exports = {
   toJournalFormat,
+  sanitizeDishDescription,
   sendScanFoodSuccess,
   sendScanLabelSuccess,
   sendNutritionScanSuccess,
